@@ -1544,7 +1544,11 @@ const MODES = [
 ];
 
 let profile = { name:'', color:COLORS[0], icon:ICONS[0] };
-let riderId = 'r_' + Math.random().toString(36).slice(2, 10);
+let riderId = localStorage.getItem('convoy:riderId');
+if(!riderId){
+  riderId = 'r_' + Math.random().toString(36).slice(2, 10);
+  try { localStorage.setItem('convoy:riderId', riderId); } catch(e){}
+}
 let tripCode = null;
 let activeMode = 'bike';
 let activeRouteIndex = 0;
@@ -1609,6 +1613,7 @@ function setBaseLayer(layerName = activeLayer){
 }
 
 function initMap(){
+  if(map) return;
   map = L.map('map', { zoomControl:false }).setView([12.9716, 77.5946], 14);
   setBaseLayer();
   map.on('click', onMapClick);
@@ -1670,10 +1675,9 @@ let savedTripCode = null;
 
   try{
     const lt = await window.storage.get('convoy:lastTrip', false);
-    if(lt && lt.value && profile.name){
+    if(lt && lt.value){
       savedTripCode = lt.value;
       document.getElementById('tripCodeInput').value = savedTripCode;
-      resumeTrip(savedTripCode);
     }
   }catch(e){}
 
@@ -2579,6 +2583,23 @@ function getMqttTopic(subPath){
   return `convoy/v1/${cleanCode}/${subPath}`;
 }
 
+/* Multi-broker WebSocket pool with automatic fallback */
+const MQTT_BROKERS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://test.mosquitto.org:8081'
+];
+let currentBrokerIdx = 0;
+let syncConnected = false;
+
+function updateSyncIndicator(connected){
+  syncConnected = connected;
+  const pill = document.getElementById('codeDisplay');
+  if(pill){
+    pill.innerHTML = `⚡ <span>${tripCode || '---'}</span> <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${connected ? '#10B981' : '#F59E0B'};box-shadow:0 0 6px ${connected ? '#10B981' : '#F59E0B'};margin-left:4px;" title="${connected ? 'Live sync connected' : 'Connecting to convoy...'}"></span>`;
+  }
+}
+
 function initMqttSync(){
   if(!window.mqtt || !tripCode) return;
   if(mqttClient){
@@ -2586,25 +2607,25 @@ function initMqttSync(){
     mqttClient = null;
   }
 
-  // Connect to EMQX public secure WebSocket broker
-  const clientId = 'cvy_' + riderId + '_' + Math.random().toString(36).slice(2, 7);
+  const brokerUrl = MQTT_BROKERS[currentBrokerIdx % MQTT_BROKERS.length];
+  const clientId = 'cvy_' + riderId + '_' + Math.random().toString(36).slice(2, 6);
+
   try {
-    mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+    mqttClient = mqtt.connect(brokerUrl, {
       clientId,
       clean: true,
-      connectTimeout: 5000,
-      reconnectPeriod: 2500,
+      connectTimeout: 6000,
+      reconnectPeriod: 3000,
       keepalive: 30
     });
 
     mqttClient.on('connect', () => {
-      console.log('[MQTT] Connected to group channel for trip:', tripCode);
-      // Subscribe to all messages under this trip
+      console.log('[Sync] Connected via', brokerUrl, 'trip:', tripCode);
+      updateSyncIndicator(true);
       const tripWildcard = getMqttTopic('#');
       mqttClient.subscribe(tripWildcard, { qos: 0 }, (err) => {
-        if(!err) console.log('[MQTT] Subscribed to:', tripWildcard);
+        if(!err) console.log('[Sync] Subscribed to:', tripWildcard);
       });
-      // Broadcast immediate presence
       publishMyPosition();
     });
 
@@ -2615,19 +2636,41 @@ function initMqttSync(){
       } catch(e){}
     });
 
+    mqttClient.on('close', () => {
+      updateSyncIndicator(false);
+    });
+
     mqttClient.on('error', (err) => {
-      console.warn('[MQTT] Sync error:', err.message);
+      console.warn('[Sync] Broker error on', brokerUrl, ':', err.message);
+      updateSyncIndicator(false);
+      // Try next broker on persistent failure
+      currentBrokerIdx++;
+      setTimeout(() => {
+        if(!syncConnected && tripCode) initMqttSync();
+      }, 3000);
     });
   } catch(e) {
-    console.warn('[MQTT] Connection attempt failed:', e);
+    console.warn('[Sync] Init failed:', e);
+    currentBrokerIdx++;
   }
 }
 
 function handleIncomingSync(topic, msg){
   if(!msg || !msg.senderId || msg.senderId === riderId) return;
 
-  // 1. Rider location update
+  // If another rider joins with the exact same name as me, deduplicate by replacing old entry
   if(topic.includes('/riders/')){
+    // Remove any older duplicate entry with the same name but different senderId
+    Object.keys(knownRiders).forEach(oldId => {
+      if(oldId !== msg.senderId && knownRiders[oldId].name.toLowerCase() === msg.name.toLowerCase()){
+        if(riderMarkers[oldId]){
+          map.removeLayer(riderMarkers[oldId]);
+          delete riderMarkers[oldId];
+        }
+        delete knownRiders[oldId];
+      }
+    });
+
     knownRiders[msg.senderId] = {
       name: msg.name,
       color: msg.color,
@@ -2720,7 +2763,9 @@ function renderRider(id, d){
 }
 
 function renderRidersRow(){
-  const row = document.getElementById('ridersRow'); row.innerHTML = '';
+  const row = document.getElementById('ridersRow');
+  if(!row) return;
+  row.innerHTML = '';
   
   // You
   const me = document.createElement('div');
@@ -2736,17 +2781,28 @@ function renderRidersRow(){
   row.appendChild(me);
 
   const now = Date.now();
+  // Filter out any stale ghosts (>20s without heartbeat) completely so they don't clutter the bar
   Object.entries(knownRiders).forEach(([id, d]) => {
-    const stale = (now - d.ts) > 22000;
+    const age = now - d.ts;
+    if(age > 25000){
+      // Prune ghost marker and knownRider completely
+      if(riderMarkers[id]){
+        map.removeLayer(riderMarkers[id]);
+        delete riderMarkers[id];
+      }
+      delete knownRiders[id];
+      return;
+    }
+
     const card = document.createElement('div');
-    card.className = 'rider-card' + (stale ? ' stale' : '');
+    card.className = 'rider-card';
     card.style.setProperty('--rider-color', d.color);
     card.innerHTML = `
       <div class="rider-top">
         <div class="rider-avatar" style="background:${d.color}">${d.icon}</div>
         <div class="rider-name">${d.name}</div>
       </div>
-      <div class="rider-status"><span class="status-dot"></span> <span id="rd_${id}">${stale ? 'Offline' : 'Live'}</span></div>
+      <div class="rider-status"><span class="status-dot"></span> <span id="rd_${id}">${age > 12000 ? 'Idle' : 'Live'}</span></div>
     `;
     row.appendChild(card);
   });
