@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://unpkg.com/mqtt@5.5.0/dist/mqtt.min.js"></script>
 <style>
   :root {
     --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
@@ -1857,6 +1858,7 @@ function startApp(){
         myMarker.setIcon(avatarIcon(profile.color, profile.icon, myPos.heading));
       }
       if(navMode) onNavPositionUpdate();
+      publishMyPosition();
     }, (err) => {
       if(err.code === 1){
         showToast('📍 Location permission denied — allow in browser settings');
@@ -1957,6 +1959,7 @@ function startApp(){
     if(sModal && !sModal.contains(e.target) && e.target.id !== 'settingsBtn') sModal.style.display = 'none';
   });
 
+  initMqttSync();
   setInterval(syncTick, 2500);
   setInterval(routeTick, 12000);
   syncTick();
@@ -1986,6 +1989,8 @@ function onMapClick(e){
     map.setView([myPos.lat, myPos.lng], 15);
     manualMode = false;
     showToast('Live position set');
+    publishMyPosition();
+    renderRidersRow();
   }
 }
 
@@ -2560,59 +2565,147 @@ async function dropMeetPin(lat, lng){
   activeRouteIndex = 0;
   routeTick();
   showToast('Meet-up point set — recalculating route');
-  try{
-    await window.storage.set('trip:' + tripCode + ':meet', JSON.stringify({ lat, lng, setBy:profile.name, ts:lastMeetTs }), true);
-  }catch(e){}
-}
-
-async function pollMeet(){
-  try{
-    const r = await window.storage.get('trip:' + tripCode + ':meet', true);
-    if(r && r.value){
-      const m = JSON.parse(r.value);
-      if(m.ts !== lastMeetTs){
-        lastMeetTs = m.ts;
-        placeMeetMarker(m.lat, m.lng);
-        if(m.setBy !== profile.name){
-          showToast(m.setBy + ' proposed a meet-up point here');
-          activeRouteIndex = 0;
-          routeTick();
-        }
-      }
-    }
-  }catch(e){}
+  broadcastMeet(lat, lng);
 }
 
 /* ==========================================================================
-   Group Sync & Rider Status
+   Real-time Cross-Device MQTT Group Sync
    ========================================================================== */
+let mqttClient = null;
 const knownRiders = {};
+
+function getMqttTopic(subPath){
+  const cleanCode = (tripCode || 'GLOBAL').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `convoy/v1/${cleanCode}/${subPath}`;
+}
+
+function initMqttSync(){
+  if(!window.mqtt || !tripCode) return;
+  if(mqttClient){
+    try { mqttClient.end(true); } catch(e){}
+    mqttClient = null;
+  }
+
+  // Connect to EMQX public secure WebSocket broker
+  const clientId = 'cvy_' + riderId + '_' + Math.random().toString(36).slice(2, 7);
+  try {
+    mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+      clientId,
+      clean: true,
+      connectTimeout: 5000,
+      reconnectPeriod: 2500,
+      keepalive: 30
+    });
+
+    mqttClient.on('connect', () => {
+      console.log('[MQTT] Connected to group channel for trip:', tripCode);
+      // Subscribe to all messages under this trip
+      const tripWildcard = getMqttTopic('#');
+      mqttClient.subscribe(tripWildcard, { qos: 0 }, (err) => {
+        if(!err) console.log('[MQTT] Subscribed to:', tripWildcard);
+      });
+      // Broadcast immediate presence
+      publishMyPosition();
+    });
+
+    mqttClient.on('message', (topic, payload) => {
+      try {
+        const msg = JSON.parse(payload.toString());
+        handleIncomingSync(topic, msg);
+      } catch(e){}
+    });
+
+    mqttClient.on('error', (err) => {
+      console.warn('[MQTT] Sync error:', err.message);
+    });
+  } catch(e) {
+    console.warn('[MQTT] Connection attempt failed:', e);
+  }
+}
+
+function handleIncomingSync(topic, msg){
+  if(!msg || !msg.senderId || msg.senderId === riderId) return;
+
+  // 1. Rider location update
+  if(topic.includes('/riders/')){
+    knownRiders[msg.senderId] = {
+      name: msg.name,
+      color: msg.color,
+      icon: msg.icon,
+      lat: msg.lat,
+      lng: msg.lng,
+      heading: msg.heading || 0,
+      ts: msg.ts || Date.now()
+    };
+    renderRider(msg.senderId, knownRiders[msg.senderId]);
+    renderRidersRow();
+  }
+
+  // 2. Rider left
+  else if(topic.includes('/leave/')){
+    if(riderMarkers[msg.senderId]){
+      map.removeLayer(riderMarkers[msg.senderId]);
+      delete riderMarkers[msg.senderId];
+    }
+    delete knownRiders[msg.senderId];
+    renderRidersRow();
+    showToast(`${msg.name || 'A rider'} left the convoy`);
+  }
+
+  // 3. Meet-up point proposed
+  else if(topic.includes('/meet/')){
+    if(msg.ts && msg.ts !== lastMeetTs){
+      lastMeetTs = msg.ts;
+      placeMeetMarker(msg.lat, msg.lng);
+      showToast(`${msg.setBy || 'Convoy member'} proposed a meet-up point!`);
+      activeRouteIndex = 0;
+      routeTick();
+    }
+  }
+}
+
+function publishMyPosition(){
+  if(!mqttClient || !mqttClient.connected || !myPos || !tripCode) return;
+  const topic = getMqttTopic(`riders/${riderId}`);
+  const payload = JSON.stringify({
+    senderId: riderId,
+    name: profile.name,
+    color: profile.color,
+    icon: profile.icon,
+    lat: myPos.lat,
+    lng: myPos.lng,
+    heading: myPos.heading || 0,
+    ts: Date.now()
+  });
+  mqttClient.publish(topic, payload, { qos: 0, retain: false });
+}
+
+function broadcastMeet(lat, lng){
+  if(!mqttClient || !mqttClient.connected || !tripCode) return;
+  const topic = getMqttTopic('meet/point');
+  const payload = JSON.stringify({
+    senderId: riderId,
+    setBy: profile.name,
+    lat,
+    lng,
+    ts: lastMeetTs
+  });
+  mqttClient.publish(topic, payload, { qos: 0, retain: true });
+}
+
+function broadcastLeave(){
+  if(!mqttClient || !mqttClient.connected || !tripCode) return;
+  const topic = getMqttTopic(`leave/${riderId}`);
+  const payload = JSON.stringify({
+    senderId: riderId,
+    name: profile.name
+  });
+  mqttClient.publish(topic, payload, { qos: 0 });
+}
 
 async function syncTick(){
   if(!tripCode) return;
-  if(myPos){
-    try{
-      await window.storage.set('trip:' + tripCode + ':rider:' + riderId, JSON.stringify({
-        name: profile.name, color: profile.color, icon: profile.icon,
-        lat: myPos.lat, lng: myPos.lng, heading: myPos.heading || 0, ts: Date.now()
-      }), true);
-    }catch(e){}
-  }
-  await pollMeet();
-  try{
-    const list = await window.storage.list('trip:' + tripCode + ':rider:', true);
-    if(list && list.keys){
-      for(const k of list.keys){
-        const id = k.replace('trip:' + tripCode + ':rider:', '');
-        if(id === riderId) continue;
-        try{
-          const r = await window.storage.get(k, true);
-          if(!r || !r.value) continue;
-          renderRider(id, JSON.parse(r.value));
-        }catch(e){}
-      }
-    }
-  }catch(e){}
+  publishMyPosition();
   renderRidersRow();
 }
 
@@ -2924,6 +3017,7 @@ function refreshNavSteps(){
 
 /* Leave / Switch Trip */
 async function leaveTrip(){
+  broadcastLeave();
   try{ await window.storage.delete('trip:' + tripCode + ':rider:' + riderId, true); }catch(e){}
   try{ await window.storage.delete('convoy:lastTrip', false); }catch(e){}
   location.reload();
