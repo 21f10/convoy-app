@@ -8,7 +8,557 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://unpkg.com/mqtt@5.5.0/dist/mqtt.min.js"></script>
+<script src="https://unpkg.com/mqtt@5.5.0/dist/mqtt.min.js">
+/* ==========================================================================
+   FEATURE: Google Maps / Apple Maps Link & Coordinate Parser
+   ========================================================================== */
+function parseLocationInput(text) {
+  if (!text || typeof text !== 'string') return null;
+  const str = text.trim();
+
+  // 1. Raw Coordinates: "12.989722, 77.728056" or "12.989722 77.728056"
+  const coordRegex = /^(-?\d{1,2}(?:\.\d+)?)[,\s]+(-?\d{1,3}(?:\.\d+)?)$/;
+  const coordMatch = str.match(coordRegex);
+  if (coordMatch) {
+    const lat = parseFloat(coordMatch[1]);
+    const lng = parseFloat(coordMatch[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng, name: `Coordinates (${lat.toFixed(4)}, ${lng.toFixed(4)})`, label: `Pinned Coordinates (${lat.toFixed(5)}, ${lng.toFixed(5)})` };
+    }
+  }
+
+  // 2. Google Maps URL with @lat,lng: https://www.google.com/maps/place/Name/@12.9897,77.7280,17z/...
+  const atMatch = str.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/);
+  if (atMatch) {
+    const lat = parseFloat(atMatch[1]);
+    const lng = parseFloat(atMatch[2]);
+    let name = 'Google Maps Location';
+    const placeMatch = str.match(/\/maps\/place\/([^/@?]+)/);
+    if (placeMatch) {
+      name = decodeURIComponent(placeMatch[1].replace(/\+/g, ' '));
+    }
+    return { lat, lng, name, label: `${name} (${lat.toFixed(4)}, ${lng.toFixed(4)})` };
+  }
+
+  // 3. Query coordinates: ?q=12.9897,77.7280 or ?ll=12.9897,77.7280 or &query=12.9897,77.7280
+  const qCoordMatch = str.match(/[?&](?:q|ll|query)=(-?\d{1,2}\.\d+)[,%20\s]+(-?\d{1,3}\.\d+)/);
+  if (qCoordMatch) {
+    const lat = parseFloat(qCoordMatch[1]);
+    const lng = parseFloat(qCoordMatch[2]);
+    return { lat, lng, name: `Maps Pin (${lat.toFixed(4)}, ${lng.toFixed(4)})`, label: `Location (${lat.toFixed(5)}, ${lng.toFixed(5)})` };
+  }
+
+  // 4. Apple Maps: https://maps.apple.com/?ll=12.9897,77.7280 or ?q=...
+  const appleMatch = str.match(/maps\.apple\.com\/.*?ll=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/);
+  if (appleMatch) {
+    const lat = parseFloat(appleMatch[1]);
+    const lng = parseFloat(appleMatch[2]);
+    return { lat, lng, name: 'Apple Maps Pin', label: `Apple Maps Location (${lat.toFixed(4)}, ${lng.toFixed(4)})` };
+  }
+
+  // 5. OpenStreetMap: https://www.openstreetmap.org/#map=16/12.9897/77.7280 or ?mlat=12.9897&mlon=77.7280
+  const osmMatch = str.match(/openstreetmap\.org\/(?:#map=\d+\/|.*mlat=)(-?\d{1,2}\.\d+)[/&](?:mlon=)?(-?\d{1,3}\.\d+)/);
+  if (osmMatch) {
+    const lat = parseFloat(osmMatch[1]);
+    const lng = parseFloat(osmMatch[2]);
+    return { lat, lng, name: 'OpenStreetMap Pin', label: `OSM Location (${lat.toFixed(4)}, ${lng.toFixed(4)})` };
+  }
+
+  // 6. Short URLs like maps.app.goo.gl or goo.gl/maps
+  if (/maps\.app\.goo\.gl|goo\.gl\/maps/i.test(str)) {
+    return { isShortUrl: true, url: str };
+  }
+
+  return null;
+}
+
+async function resolveShortMapsUrl(url) {
+  showToast('Resolving Google Maps short link…');
+  try {
+    const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+    const finalUrl = res.url || '';
+    const parsed = parseLocationInput(finalUrl);
+    if (parsed && !parsed.isShortUrl) return parsed;
+    
+    const text = await res.text();
+    const match = text.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/) || text.match(/[?&]q=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/);
+    if (match) {
+      return {
+        lat: parseFloat(match[1]),
+        lng: parseFloat(match[2]),
+        name: 'Shared Destination',
+        label: `Shared Google Maps Destination (${parseFloat(match[1]).toFixed(4)}, ${parseFloat(match[2]).toFixed(4)})`
+      };
+    }
+  } catch(e) {
+    console.warn('Could not unshorten URL:', e);
+  }
+  return null;
+}
+
+function setDestinationFromLink(loc) {
+  destination = { lat: loc.lat, lng: loc.lng };
+  destName = loc.name;
+  if(destMarker) map.removeLayer(destMarker);
+  destMarker = L.marker([loc.lat, loc.lng], {
+    icon: L.divIcon({
+      className: 'dest-marker',
+      html: '<div style="background:#EF4444;color:#fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 4px 14px rgba(239,68,68,0.5);border:2px solid #fff;">🎯</div>',
+      iconSize: [34, 34],
+      iconAnchor: [17, 34]
+    })
+  }).addTo(map);
+
+  map.flyTo([loc.lat, loc.lng], 16, { duration: 1.2 });
+  const searchInput = document.getElementById('destSearch');
+  if(searchInput) searchInput.value = loc.name;
+  const dropdown = document.getElementById('searchDropdown');
+  if(dropdown) dropdown.classList.remove('open');
+  
+  showToast(`🎯 Destination set: ${loc.name}`);
+  showPlaceCard({
+    name: loc.name,
+    label: loc.label || loc.name,
+    lat: loc.lat,
+    lng: loc.lng,
+    type: 'destination'
+  });
+  routeTick();
+}
+
+async function handleLocationInput(text) {
+  let parsed = parseLocationInput(text);
+  if (parsed && parsed.isShortUrl) {
+    parsed = await resolveShortMapsUrl(parsed.url);
+  }
+  if (parsed && parsed.lat && parsed.lng) {
+    setDestinationFromLink(parsed);
+    return true;
+  }
+  return false;
+}
+
+// Paste Maps Link Chip Handler
+const pasteChipEl = document.getElementById('pasteLinkChip');
+if(pasteChipEl){
+  pasteChipEl.onclick = async () => {
+    try {
+      let clip = '';
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        clip = await navigator.clipboard.readText();
+      }
+      if (!clip) {
+        clip = prompt('Paste Google Maps link, Apple Maps link, or coordinates:');
+      }
+      if (clip) {
+        const ok = await handleLocationInput(clip);
+        if (!ok) {
+          showToast('Could not parse link. Enter coordinates or place name.');
+        }
+      }
+    } catch(e) {
+      const manual = prompt('Paste Google Maps link or coordinates (lat, lng):');
+      if (manual) handleLocationInput(manual);
+    }
+  };
+}
+
+// Search bar paste & change listener
+const destSearchEl = document.getElementById('destSearch');
+if(destSearchEl){
+  destSearchEl.addEventListener('paste', (e) => {
+    const pasted = (e.clipboardData || window.clipboardData)?.getData('text');
+    if (pasted && (pasted.includes('http') || /^[-\d.,\s]+$/.test(pasted.trim()))) {
+      setTimeout(() => handleLocationInput(pasted), 50);
+    }
+  });
+  destSearchEl.addEventListener('change', (e) => {
+    const val = e.target.value.trim();
+    if (val.includes('http') || /^[-\d.,\s]+$/.test(val)) {
+      handleLocationInput(val);
+    }
+  });
+}
+
+/* ==========================================================================
+   FEATURE: Speed Limit & Over-Speed Visual Warnings
+   ========================================================================== */
+let currentSpeedLimit = 60;
+
+function detectSpeedLimit(step) {
+  if (!step) return 50;
+  const name = (step.name || '').toLowerCase();
+  const ref = (step.ref || '').toLowerCase();
+  if (/expressway|motorway|tollway|freeway|highway|ah\d|ne\d/i.test(name + ref)) return 100;
+  if (/nh\d|sh\d|outer ring|ring road|bypass|flyover|express/i.test(name + ref)) return 80;
+  if (/main road|arterial|boulevard|avenue|cross road|marathahalli|whitefield|sarjapur|bellary/i.test(name)) return 60;
+  if (/service road|lane|cross|gali|layout|nagar|colony|residential|street/i.test(name)) return 40;
+  return 50;
+}
+
+/* ==========================================================================
+   FEATURE 1: "Rider Fell Behind" Proximity Alert
+   ========================================================================== */
+let lastFellBehindAlert = 0;
+function checkRiderProximity() {
+  if (!myPos || !tripCode) return;
+  const now = Date.now();
+  if (now - lastFellBehindAlert < 90000) return; // 90-sec cooldown
+
+  for (const [id, rider] of Object.entries(knownRiders)) {
+    if (!rider.pos || rider.isMe) continue;
+    const dKm = haversineKm(myPos.lat, myPos.lng, rider.pos.lat, rider.pos.lng);
+    const speed = rider.pos.speed ? rider.pos.speed * 3.6 : 0;
+
+    if ((dKm > 0.6 && speed < 5) || dKm > 1.2) {
+      lastFellBehindAlert = now;
+      const distStr = dKm < 1 ? Math.round(dKm * 1000) + 'm' : dKm.toFixed(1) + 'km';
+      const msg = `⚠️ ${rider.name || 'A rider'} is ${distStr} behind the convoy!`;
+      showToast(msg);
+      speakVoiceAlert(`Alert: ${rider.name || 'Rider'} has fallen ${distStr} behind`);
+      break;
+    }
+  }
+}
+
+/* ==========================================================================
+   FEATURE 2: One-Tap Hazard & SOS Flares (MQTT Broadcast)
+   ========================================================================== */
+let hazardMarkers = {};
+
+function openHazardModal(){
+  document.getElementById('hazardModal').style.display = 'flex';
+}
+function closeHazardModal(){
+  document.getElementById('hazardModal').style.display = 'none';
+}
+
+const headerHazardBtn = document.getElementById('headerHazardBtn');
+if(headerHazardBtn) headerHazardBtn.onclick = openHazardModal;
+const navHazardBtn = document.getElementById('navHazardBtn');
+if(navHazardBtn) navHazardBtn.onclick = openHazardModal;
+const hazardModalClose = document.getElementById('hazardModalClose');
+if(hazardModalClose) hazardModalClose.onclick = closeHazardModal;
+
+document.querySelectorAll('.hazard-card').forEach(card => {
+  card.onclick = () => {
+    const type = card.getAttribute('data-hazard');
+    reportHazard(type);
+  };
+});
+
+function reportHazard(type) {
+  if (!myPos || !tripCode) {
+    showToast('GPS location needed to drop hazard pin');
+    return;
+  }
+  const id = 'haz_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+  const labels = {
+    police: 'Police Checkpoint',
+    pothole: 'Road Hazard / Pothole',
+    sos: 'Breakdown / SOS',
+    fuel: 'Need Fuel / Rest Stop'
+  };
+  const emojis = {
+    police: '🛑',
+    pothole: '⚠️',
+    sos: '🚨',
+    fuel: '⛽'
+  };
+  const payload = {
+    id,
+    type,
+    title: labels[type] || 'Road Hazard',
+    emoji: emojis[type] || '⚠️',
+    lat: myPos.lat,
+    lng: myPos.lng,
+    riderName: profile.name,
+    time: Date.now()
+  };
+
+  if (mqttClient && mqttClient.connected) {
+    mqttClient.publish(`convoy/${tripCode}/hazard`, JSON.stringify(payload), { qos: 0, retain: false });
+  }
+
+  addHazardToMap(payload, true);
+  closeHazardModal();
+  showToast(`📢 Broadcast: ${payload.title}`);
+}
+
+function addHazardToMap(h, isLocal) {
+  if (hazardMarkers[h.id]) return;
+  const icon = L.divIcon({
+    className: 'hazard-marker',
+    html: `<div class="hazard-pin-pulse ${h.type}"><span class="hazard-emoji">${h.emoji}</span></div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18]
+  });
+  const marker = L.marker([h.lat, h.lng], { icon }).addTo(map);
+  marker.bindPopup(`
+    <div style="font-size:13px;font-weight:800;color:#111;">${h.emoji} ${h.title}</div>
+    <div style="font-size:11px;color:#555;margin-top:2px;">Reported by: <b>${h.riderName}</b></div>
+  `);
+  hazardMarkers[h.id] = marker;
+
+  if (!isLocal) {
+    showToast(`⚠️ Hazard ahead: ${h.title} (reported by ${h.riderName})`);
+    speakVoiceAlert(`Caution: ${h.title} reported ahead`);
+  }
+
+  // Auto remove after 25 minutes
+  setTimeout(() => {
+    if (hazardMarkers[h.id]) {
+      map.removeLayer(hazardMarkers[h.id]);
+      delete hazardMarkers[h.id];
+    }
+  }, 25 * 60 * 1000);
+}
+
+/* ==========================================================================
+   FEATURE 3: Audio Cues via Helmet Bluetooth (Web Speech API)
+   ========================================================================== */
+let voiceGuidanceEnabled = localStorage.getItem('convoy:voiceEnabled') !== 'false';
+let lastSpokenNavText = '';
+let lastSpokenTime = 0;
+
+function toggleVoiceGuidance() {
+  voiceGuidanceEnabled = !voiceGuidanceEnabled;
+  localStorage.setItem('convoy:voiceEnabled', voiceGuidanceEnabled);
+  const btn = document.getElementById('voiceToggleBtn');
+  if (btn) {
+    btn.innerHTML = voiceGuidanceEnabled ? '🔊' : '🔇';
+    btn.classList.toggle('muted', !voiceGuidanceEnabled);
+  }
+  showToast(voiceGuidanceEnabled ? '🔊 Voice Guidance: ON' : '🔇 Voice Guidance: Muted');
+  if (voiceGuidanceEnabled) speakVoiceAlert('Voice guidance enabled');
+}
+
+const voiceBtnEl = document.getElementById('voiceToggleBtn');
+if(voiceBtnEl) voiceBtnEl.onclick = toggleVoiceGuidance;
+
+function speakVoiceAlert(text) {
+  if (!voiceGuidanceEnabled || !('speechSynthesis' in window)) return;
+  const now = Date.now();
+  if (text === lastSpokenNavText && (now - lastSpokenTime) < 15000) return;
+
+  lastSpokenNavText = text;
+  lastSpokenTime = now;
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.05;
+    utterance.lang = 'en-US';
+    window.speechSynthesis.speak(utterance);
+  } catch(e){}
+}
+
+/* ==========================================================================
+   FEATURE 4: Multi-Stop Pit Stops (Waypoints)
+   ========================================================================== */
+let pitStops = [];
+
+function addPitStop(place) {
+  if (!destination) {
+    showToast('Setting as primary destination');
+    destination = { lat: place.lat, lng: place.lng };
+    destName = place.name;
+    routeTick();
+    return;
+  }
+  if (pitStops.length >= 3) {
+    showToast('Maximum 3 pit stops supported along route');
+    return;
+  }
+  const stopNum = pitStops.length + 1;
+  const marker = L.marker([place.lat, place.lng], {
+    icon: L.divIcon({
+      className: 'pitstop-marker',
+      html: `<div style="background:#8B5CF6;color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;border:2.5px solid #fff;box-shadow:0 4px 12px rgba(139,92,246,0.6);">P${stopNum}</div>`,
+      iconSize: [30, 30],
+      iconAnchor: [15, 30]
+    })
+  }).addTo(map);
+
+  pitStops.push({
+    lat: place.lat,
+    lng: place.lng,
+    name: place.name || `Pit Stop ${stopNum}`,
+    marker
+  });
+
+  showToast(`☕ Added Pit Stop ${stopNum}: ${place.name}`);
+  closePlaceCard();
+  routeTick();
+}
+
+function clearPitStops() {
+  pitStops.forEach(p => { if (p.marker) map.removeLayer(p.marker); });
+  pitStops = [];
+}
+
+/* ==========================================================================
+   FEATURE 5: Head-Up / Compass Rotating Map Mode
+   ========================================================================== */
+let headUpMode = false;
+
+function toggleCompassMode() {
+  headUpMode = !headUpMode;
+  const fab = document.getElementById('compassFab');
+  if (fab) {
+    fab.classList.toggle('active', headUpMode);
+    fab.innerHTML = headUpMode ? '🏎️' : '🧭';
+    fab.title = headUpMode ? 'Head-Up Mode (Active)' : 'North-Up Mode';
+  }
+  showToast(headUpMode ? '🏎️ Head-Up: Map rotates with heading' : '🧭 North-Up Map Mode');
+  if (!headUpMode) {
+    const pane = document.querySelector('#map .leaflet-map-pane');
+    if (pane) pane.style.transform = '';
+  } else if (myPos && myPos.heading != null) {
+    rotateMapToHeading(myPos.heading);
+  }
+}
+
+const compassFabEl = document.getElementById('compassFab');
+if(compassFabEl) compassFabEl.onclick = toggleCompassMode;
+
+function rotateMapToHeading(heading) {
+  if (!headUpMode || heading == null) return;
+  const pane = document.querySelector('#map .leaflet-map-pane');
+  if (pane) {
+    pane.style.transformOrigin = '50% 50%';
+    pane.style.transform = `rotate(-${heading}deg)`;
+    pane.style.transition = 'transform 0.3s ease-out';
+  }
+}
+
+/* ==========================================================================
+   FEATURE 6: Offline Route & Map Caching
+   ========================================================================== */
+function cacheActiveRoute(route) {
+  try {
+    const payload = {
+      route,
+      destination,
+      pitStops: pitStops.map(p => ({ lat: p.lat, lng: p.lng, name: p.name })),
+      savedAt: Date.now()
+    };
+    localStorage.setItem('convoy:activeRoute', JSON.stringify(payload));
+  } catch(e){}
+}
+
+function loadCachedRoute() {
+  try {
+    const saved = localStorage.getItem('convoy:activeRoute');
+    if (!saved) return null;
+    return JSON.parse(saved);
+  } catch(e){ return null; }
+}
+
+/* ==========================================================================
+   FEATURE 7: Strava-Style Post-Ride Summary Card
+   ========================================================================== */
+let rideStats = {
+  active: false,
+  startTime: null,
+  totalDistanceMeters: 0,
+  lastPos: null,
+  topSpeedKmh: 0,
+  speedSamples: [],
+  riders: new Set()
+};
+
+function startRideTracking() {
+  rideStats = {
+    active: true,
+    startTime: Date.now(),
+    totalDistanceMeters: 0,
+    lastPos: myPos ? { lat: myPos.lat, lng: myPos.lng } : null,
+    topSpeedKmh: 0,
+    speedSamples: [],
+    riders: new Set([profile?.name || 'Rider'])
+  };
+}
+
+function trackRidePosition(pos) {
+  if (!rideStats.active || !pos) return;
+  const kmh = pos.speed != null ? pos.speed * 3.6 : 0;
+  if (kmh > rideStats.topSpeedKmh) rideStats.topSpeedKmh = Math.round(kmh);
+  if (kmh > 4) rideStats.speedSamples.push(kmh);
+
+  if (rideStats.lastPos) {
+    const dKm = haversineKm(rideStats.lastPos.lat, rideStats.lastPos.lng, pos.lat, pos.lng);
+    if (dKm > 0.005 && dKm < 0.8) {
+      rideStats.totalDistanceMeters += dKm * 1000;
+      rideStats.lastPos = { lat: pos.lat, lng: pos.lng };
+    }
+  } else {
+    rideStats.lastPos = { lat: pos.lat, lng: pos.lng };
+  }
+
+  Object.values(knownRiders).forEach(r => {
+    if (r.name) rideStats.riders.add(r.name);
+  });
+}
+
+function showRideSummaryModal() {
+  const durationMs = Date.now() - (rideStats.startTime || Date.now());
+  const mins = Math.max(1, Math.round(durationMs / 60000));
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  const durationStr = hours > 0 ? `${hours}h ${remMins}m` : `${mins} min`;
+
+  const distKm = (rideStats.totalDistanceMeters / 1000).toFixed(1);
+  const avgSpeed = rideStats.speedSamples.length ?
+    Math.round(rideStats.speedSamples.reduce((a,b)=>a+b, 0) / rideStats.speedSamples.length) :
+    (mins > 0 ? Math.round((rideStats.totalDistanceMeters / 1000) / (mins / 60)) : 0);
+
+  document.getElementById('sumTripBadge').textContent = `⚡ CONVOY: ${tripCode || 'TRIP'}`;
+  document.getElementById('sumDist').textContent = `${distKm} km`;
+  document.getElementById('sumDuration').textContent = durationStr;
+  document.getElementById('sumAvgSpeed').textContent = `${avgSpeed} km/h`;
+  document.getElementById('sumTopSpeed').textContent = `${rideStats.topSpeedKmh} km/h`;
+
+  const ridersListEl = document.getElementById('sumRidersList');
+  if (ridersListEl) {
+    ridersListEl.innerHTML = Array.from(rideStats.riders).map(name => `
+      <div class="sum-rider-pill">
+        <span>👤</span>
+        <span>${name}</span>
+      </div>
+    `).join('');
+  }
+
+  document.getElementById('rideSummaryModal').style.display = 'flex';
+}
+
+function closeRideSummaryModal() {
+  document.getElementById('rideSummaryModal').style.display = 'none';
+}
+
+const sumCloseBtn = document.getElementById('summaryModalClose');
+if(sumCloseBtn) sumCloseBtn.onclick = closeRideSummaryModal;
+const sumDoneBtn = document.getElementById('sumDoneBtn');
+if(sumDoneBtn) sumDoneBtn.onclick = closeRideSummaryModal;
+
+const sumShareBtn = document.getElementById('sumShareBtn');
+if(sumShareBtn){
+  sumShareBtn.onclick = () => {
+    const dist = document.getElementById('sumDist').textContent;
+    const dur = document.getElementById('sumDuration').textContent;
+    const avg = document.getElementById('sumAvgSpeed').textContent;
+    const top = document.getElementById('sumTopSpeed').textContent;
+    const crew = Array.from(rideStats.riders).join(', ');
+    const text = `🏆 Convoy Ride Summary!\n⚡ Trip: ${tripCode}\n📍 Distance: ${dist}\n⏱️ Duration: ${dur}\n🚀 Avg Speed: ${avg} • Top: ${top}\n👥 Crew: ${crew}\nJoin our next ride on Convoy!`;
+
+    if (navigator.share) {
+      navigator.share({ title: 'Convoy Ride Summary', text }).catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(text).then(() => showToast('Summary copied to clipboard!'));
+    }
+  };
+}
+
+</script>
 <style>
   :root {
     --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
@@ -1714,6 +2264,201 @@
     border-left: 6px solid transparent;
     border-right: 6px solid transparent;
   }
+
+  /* Speed Limit Badge & Over-speed Styling */
+  .speed-cluster {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .speed-limit-badge {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 4px solid #EF4444;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+    flex-shrink: 0;
+    transition: all 0.25s ease;
+  }
+  .speed-limit-num {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-weight: 900;
+    color: #111827;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+  .speed-limit-badge.overspeed {
+    animation: speedLimitPulse 0.9s infinite alternate;
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.75);
+  }
+  @keyframes speedLimitPulse {
+    from { transform: scale(1); border-color: #EF4444; }
+    to { transform: scale(1.12); border-color: #DC2626; }
+  }
+  .nav-speed.overspeed {
+    color: #EF4444 !important;
+    text-shadow: 0 0 12px rgba(239, 68, 68, 0.45);
+  }
+
+  /* Voice Guidance Toggle in Nav Banner */
+  .voice-toggle-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    color: #fff;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+    flex-shrink: 0;
+  }
+  .voice-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.35);
+    transform: scale(1.05);
+  }
+  .voice-toggle-btn.muted {
+    opacity: 0.55;
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  /* Hazard Modal & Pulse Markers */
+  .hazard-modal-card {
+    max-width: 380px;
+    text-align: center;
+  }
+  .hazard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .hazard-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-md);
+    padding: 14px 10px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s ease;
+    color: var(--text);
+  }
+  .hazard-card:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.45);
+    transform: translateY(-2px);
+  }
+  .hazard-emoji {
+    font-size: 26px;
+    margin-bottom: 6px;
+  }
+  .hazard-name {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+  .hazard-sub {
+    font-size: 10.5px;
+    color: var(--text-faint);
+  }
+
+  /* Pulsing Hazard Marker on Map */
+  .hazard-pin-pulse {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(239, 68, 68, 0.9);
+    border: 2px solid #fff;
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    animation: hazardPulse 1.4s infinite;
+  }
+  @keyframes hazardPulse {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    70% { box-shadow: 0 0 0 14px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  }
+
+  /* Strava-Style Summary Modal */
+  .summary-modal-card {
+    max-width: 400px;
+    text-align: center;
+    background: linear-gradient(180deg, #1E1B4B 0%, #0F172A 100%);
+    border: 1.5px solid rgba(99, 102, 241, 0.35);
+  }
+  .summary-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .sum-stat-box {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-md);
+    padding: 14px 10px;
+  }
+  .sum-stat-val {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.02em;
+  }
+  .sum-stat-lbl {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-top: 3px;
+  }
+  .sum-riders-box {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    margin-top: 8px;
+    text-align: left;
+  }
+  .sum-riders-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .sum-rider-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    font-size: 12px;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  /* Paste Link Chip Highlight */
+  .chip-paste {
+    background: rgba(79, 70, 229, 0.15) !important;
+    border-color: rgba(79, 70, 229, 0.4) !important;
+    color: var(--accent-light) !important;
+    font-weight: 700 !important;
+  }
+  .chip-paste:hover {
+    background: rgba(79, 70, 229, 0.28) !important;
+  }
+
 </style>
 </head>
 <body>
@@ -1818,7 +2563,8 @@
     <input id="destSearch" placeholder="Search destination, apartment, cafe..." autocomplete="off">
     <button class="search-clear-btn" id="searchClearBtn">✕</button>
     <div class="header-actions">
-      <div class="trip-code-pill" id="codeDisplay" title="Click to copy trip code">···</div>
+      <div class="trip-code-pill" id="codeDisplay" title="Click to share trip code / QR">···</div>
+      <div class="icon-btn" id="headerHazardBtn" title="Report Road Hazard / SOS" style="color:#F87171;">⚠️</div>
       <div class="icon-btn" id="placesBtn" title="Saved & Recent Places">★</div>
       <div class="icon-btn" id="settingsBtn" title="Settings">⚙</div>
     </div>
@@ -1829,6 +2575,7 @@
       <span>📍 Start: Live Location</span>
       <button class="clear-start-btn" id="startClearBtn" title="Reset to live GPS">✕</button>
     </div>
+    <div class="cat-chip chip-paste" id="pasteLinkChip" title="Paste Google Maps or Apple Maps Link">📋 Paste Link</div>
     <div class="cat-chip" data-cat="cafe">☕ Cafes</div>
     <div class="cat-chip" data-cat="fuel">⛽ Fuel / EV</div>
     <div class="cat-chip" data-cat="food">🍔 Food</div>
@@ -1849,6 +2596,7 @@
 
 <!-- Floating Action Buttons (Recenter & Map Layer) -->
 <div class="fab-group" id="fabGroup" style="display:none;">
+  <button class="fab-btn" id="compassFab" title="Toggle Head-Up / North-Up Mode">🧭</button>
   <button class="fab-btn" id="layerFab" title="Switch Map Style">🗺️</button>
   <button class="fab-btn" id="recenterBtn" title="Center Live Location">⌖</button>
 </div>
@@ -1895,7 +2643,10 @@
 <div class="nav-banner" id="navBanner">
   <div class="nb-main">
     <div class="nb-arrow" id="navArrow">↑</div>
-    <div class="nb-text" id="navText">Head straight</div>
+    <div style="flex:1;">
+      <div class="nb-text" id="navText">Head straight</div>
+    </div>
+    <button class="voice-toggle-btn" id="voiceToggleBtn" title="Toggle Voice Guidance">🔊</button>
   </div>
   <div class="nb-then" id="navThen" style="display:none;">
     <span id="navThenArrow">↱</span>
@@ -1905,7 +2656,12 @@
 
 <div class="nav-bottom" id="navBottom">
   <div class="nav-stats-row">
-    <div class="nav-speed" id="navSpeed">0<span> km/h</span></div>
+    <div class="speed-cluster">
+      <div class="nav-speed" id="navSpeed">0<span> km/h</span></div>
+      <div class="speed-limit-badge" id="speedLimitBadge" title="Road Speed Limit">
+        <span class="speed-limit-num" id="speedLimitVal">60</span>
+      </div>
+    </div>
     <div class="nav-eta-box">
       <div class="nav-eta" id="navEta">–</div>
       <div class="nav-dist" id="navDist">–</div>
@@ -1913,7 +2669,81 @@
   </div>
   <div class="nav-actions">
     <button class="action-btn btn-meet" id="navMeetBtn">📍 Meet Here</button>
+    <button class="action-btn btn-hazard" id="navHazardBtn" style="background:rgba(239,68,68,0.18);border:1px solid rgba(239,68,68,0.4);color:#FCA5A5;">⚠️ Hazard</button>
     <button class="action-btn btn-subtle" id="navEndBtn" style="flex:1;">End Journey</button>
+  </div>
+</div>
+
+
+<!-- Hazard / SOS Flare Picker Modal -->
+<div id="hazardModal" class="modal-backdrop" style="display:none;">
+  <div class="qr-modal-card hazard-modal-card">
+    <button class="qr-modal-close" id="hazardModalClose">✕</button>
+    <div style="font-size:26px;margin-bottom:4px;">⚠️</div>
+    <div style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:2px;">Report Road Hazard / SOS</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-bottom:12px;">Broadcast alert to all convoy riders in real-time</div>
+    
+    <div class="hazard-grid">
+      <div class="hazard-card" data-hazard="police">
+        <div class="hazard-emoji">🛑</div>
+        <div class="hazard-name">Police Check</div>
+        <div class="hazard-sub">Speed trap / Checkpoint</div>
+      </div>
+      <div class="hazard-card" data-hazard="pothole">
+        <div class="hazard-emoji">⚠️</div>
+        <div class="hazard-name">Road Hazard</div>
+        <div class="hazard-sub">Pothole / Debris / Bad Road</div>
+      </div>
+      <div class="hazard-card" data-hazard="sos">
+        <div class="hazard-emoji">🚨</div>
+        <div class="hazard-name">Breakdown / SOS</div>
+        <div class="hazard-sub">Flat tire / Emergency</div>
+      </div>
+      <div class="hazard-card" data-hazard="fuel">
+        <div class="hazard-emoji">⛽</div>
+        <div class="hazard-name">Need Fuel</div>
+        <div class="hazard-sub">Low fuel / Rest stop</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Post-Ride Strava-Style Summary Modal -->
+<div id="rideSummaryModal" class="modal-backdrop" style="display:none;">
+  <div class="qr-modal-card summary-modal-card">
+    <button class="qr-modal-close" id="summaryModalClose">✕</button>
+    <div style="font-size:30px;margin-bottom:4px;">🏆</div>
+    <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:2px;">Ride Completed!</div>
+    <div style="font-size:12.5px;color:var(--accent-light);font-weight:700;margin-bottom:14px;" id="sumTripBadge">CONVOY</div>
+    
+    <div class="summary-stats-grid">
+      <div class="sum-stat-box">
+        <div class="sum-stat-val" id="sumDist">0.0 km</div>
+        <div class="sum-stat-lbl">Distance</div>
+      </div>
+      <div class="sum-stat-box">
+        <div class="sum-stat-val" id="sumDuration">0 min</div>
+        <div class="sum-stat-lbl">Duration</div>
+      </div>
+      <div class="sum-stat-box">
+        <div class="sum-stat-val" id="sumAvgSpeed">0 km/h</div>
+        <div class="sum-stat-lbl">Avg Speed</div>
+      </div>
+      <div class="sum-stat-box">
+        <div class="sum-stat-val" id="sumTopSpeed">0 km/h</div>
+        <div class="sum-stat-lbl">Top Speed</div>
+      </div>
+    </div>
+
+    <div class="sum-riders-box">
+      <div style="font-size:11.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px;">Convoy Crew</div>
+      <div class="sum-riders-list" id="sumRidersList"></div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="primary-btn" id="sumShareBtn" style="flex:1;padding:12px;font-size:13px;font-weight:700;">📤 Share Ride</button>
+      <button class="action-btn btn-subtle" id="sumDoneBtn" style="padding:12px 18px;font-size:13px;font-weight:600;">Close</button>
+    </div>
   </div>
 </div>
 
@@ -2993,6 +3823,7 @@ function showPlaceCard(d){
       <div class="pc-chips" id="pcChips"><div class="pc-spinner">Loading place details…</div></div>
       <div class="pc-actions">
         <button class="pc-btn pc-btn-primary" id="pcStartBtn">🚀 Start Journey</button>
+        ${destination ? `<button class="pc-btn pc-btn-secondary" id="pcPitBtn">➕ Add Pit Stop</button>` : ''}
         <button class="pc-btn pc-btn-secondary" id="pcFavBtn">${isFavorite(d) ? '★ Saved' : '☆ Save'}</button>
         <button class="pc-btn pc-btn-secondary" id="pcCopyBtn">📋 Copy</button>
       </div>
@@ -3007,6 +3838,7 @@ function showPlaceCard(d){
 
   document.getElementById('pcCloseBtn').onclick = closePlaceCard;
   document.getElementById('pcStartBtn').onclick = () => { closePlaceCard(); startJourney(); };
+  const pitB = document.getElementById('pcPitBtn'); if(pitB) pitB.onclick = () => addPitStop(d);
   document.getElementById('pcFavBtn').onclick = () => { toggleFavorite(d); showPlaceCard(d); };
   document.getElementById('pcCopyBtn').onclick = () => {
     navigator.clipboard?.writeText(d.label).then(() => showToast('Address copied to clipboard'));
@@ -3550,6 +4382,11 @@ function handleIncomingSync(topic, msg){
       routeTick();
     }
   }
+
+  // 4. Hazard Flare reported
+  else if(topic.includes('/hazard')){
+    addHazardToMap(msg, false);
+  }
 }
 
 function publishMyPosition(){
@@ -3665,10 +4502,29 @@ function currentTarget(){
 function originPoint(){ return routeOrigin || myPos; }
 
 async function fetchAlternatives(fromLat, fromLng, toLat, toLng){
-  const url = `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson&alternatives=true&steps=true&annotations=true`;
-  const res = await fetch(url);
-  const data = await res.json();
-  return data.routes || [];
+  let coordsStr = `${fromLng},${fromLat}`;
+  if (pitStops && pitStops.length) {
+    coordsStr += ';' + pitStops.map(p => `${p.lng},${p.lat}`).join(';');
+  }
+  coordsStr += `;${toLng},${toLat}`;
+
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson&alternatives=true&steps=true&annotations=true`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.routes && data.routes.length) {
+      cacheActiveRoute(data.routes[0]);
+    }
+    return data.routes || [];
+  } catch(e) {
+    console.warn('Network route fetch failed, loading offline cached route:', e);
+    const cached = loadCachedRoute();
+    if (cached && cached.route) {
+      showToast('📶 Offline Mode: Using cached route');
+      return [cached.route];
+    }
+    return [];
+  }
 }
 
 function speedColor(kmh){
@@ -3840,6 +4696,7 @@ function startJourney(){
   navSteps = route.legs.flatMap(leg => leg.steps);
   navStepIndex = 0;
   navMode = true;
+  startRideTracking();
 
   document.getElementById('topHeader').style.display = 'none';
   document.getElementById('searchDropdown').style.display = 'none';
@@ -3852,6 +4709,7 @@ function startJourney(){
   updateNavBanner();
   requestAnimationFrame(updateFabPosition);
   showToast('Navigation started');
+  speakVoiceAlert('Navigation started. Follow route.');
 }
 
 function endJourney(){
@@ -3862,6 +4720,7 @@ function endJourney(){
   document.getElementById('sheet').style.display = 'block';
   requestAnimationFrame(updateFabPosition);
   if(myPos) map.setView([myPos.lat, myPos.lng], 15);
+  showRideSummaryModal();
 }
 
 function updateNavBanner(){
@@ -3878,6 +4737,11 @@ function updateNavBanner(){
   } else {
     thenEl.style.display = 'none';
   }
+
+  const spoken = instructionText(step);
+  if(spoken && spoken !== lastSpokenNavText){
+    speakVoiceAlert(spoken);
+  }
 }
 
 function onNavPositionUpdate(){
@@ -3885,7 +4749,53 @@ function onNavPositionUpdate(){
   map.setView([myPos.lat, myPos.lng], map.getZoom());
 
   const kmh = myGpsSpeed != null ? myGpsSpeed * 3.6 : 0;
-  document.getElementById('navSpeed').innerHTML = Math.max(0, Math.round(kmh)) + '<span> km/h</span>';
+  const roundedKmh = Math.max(0, Math.round(kmh));
+  const speedEl = document.getElementById('navSpeed');
+  const limitEl = document.getElementById('speedLimitVal');
+  const limitBadge = document.getElementById('speedLimitBadge');
+
+  if(speedEl) speedEl.innerHTML = roundedKmh + '<span> km/h</span>';
+
+  // Detect and display posted speed limit
+  if(navSteps[navStepIndex]){
+    currentSpeedLimit = detectSpeedLimit(navSteps[navStepIndex]);
+  }
+  if(limitEl) limitEl.textContent = currentSpeedLimit;
+
+  // Over-speed check & visual alert
+  const isOver = roundedKmh > (currentSpeedLimit + 5);
+  if(speedEl) speedEl.classList.toggle('overspeed', isOver);
+  if(limitBadge) limitBadge.classList.toggle('overspeed', isOver);
+
+  if(isOver && !window._overspeedWarned){
+    window._overspeedWarned = true;
+    speakVoiceAlert(`Caution: Speed limit is ${currentSpeedLimit}`);
+    setTimeout(() => { window._overspeedWarned = false; }, 45000);
+  }
+
+  // Head-up compass rotation
+  if(headUpMode && myPos.heading != null){
+    rotateMapToHeading(myPos.heading);
+  }
+
+  // Track stats for Strava summary
+  trackRidePosition(myPos);
+
+  // Check proximity for rider fell-behind alerts
+  checkRiderProximity();
+
+  // Pit Stop proximity checking
+  if(pitStops.length){
+    const nextPit = pitStops[0];
+    const dPit = haversineKm(myPos.lat, myPos.lng, nextPit.lat, nextPit.lng);
+    if(dPit < 0.045){
+      showToast(`☕ Reached ${nextPit.name}!`);
+      speakVoiceAlert(`Reached ${nextPit.name}`);
+      if(nextPit.marker) map.removeLayer(nextPit.marker);
+      pitStops.shift();
+      routeTick();
+    }
+  }
 
   if(navSteps[navStepIndex]){
     const loc = navSteps[navStepIndex].maneuver.location;
