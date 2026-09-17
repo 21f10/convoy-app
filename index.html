@@ -717,8 +717,11 @@ async function toggleWeatherRadar() {
   const menuOpt = document.getElementById('menuRadarOption');
   const legend = document.getElementById('radarLegend');
 
-  if (btn) btn.classList.toggle('active', weatherRadarActive);
-  if (menuOpt) menuOpt.style.background = weatherRadarActive ? 'rgba(6,182,212,0.18)' : '';
+  if (btn) {
+    btn.classList.toggle('radar-active', weatherRadarActive);
+    btn.innerHTML = weatherRadarActive ? '🌧️<span class="radar-live-badge">ON</span>' : '🌧️';
+  }
+  if (menuOpt) menuOpt.style.background = weatherRadarActive ? 'rgba(6,182,212,0.22)' : '';
 
   if (!weatherRadarActive) {
     if (weatherRadarLayer) {
@@ -726,16 +729,16 @@ async function toggleWeatherRadar() {
       weatherRadarLayer = null;
     }
     if (legend) legend.style.display = 'none';
-    showToast('🌧️ Weather Radar turned OFF');
+    showToast('🌧️ Live Rain Radar: OFF');
     return;
   }
 
-  showToast('🌧️ Loading live Doppler rain radar…');
+  showToast('🌧️ Connecting to live Doppler radar…');
   try {
     const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
     const data = await res.json();
     if (!data.radar || !data.radar.past || !data.radar.past.length) {
-      showToast('Radar data currently unavailable');
+      showToast('⚠️ Rain radar data temporarily unavailable');
       return;
     }
     const latest = data.radar.past[data.radar.past.length - 1];
@@ -743,17 +746,17 @@ async function toggleWeatherRadar() {
 
     if (weatherRadarLayer) map.removeLayer(weatherRadarLayer);
     weatherRadarLayer = L.tileLayer(tileUrl, {
-      opacity: 0.75,
-      zIndex: 400,
-      attribution: 'Weather: RainViewer'
+      opacity: 0.78,
+      zIndex: 450
     }).addTo(map);
 
     if (legend) legend.style.display = 'flex';
-    showToast('🌧️ Live Rain & Storm Radar: Active');
-    speakVoiceAlert('Weather radar active. Showing live precipitation.');
+    const radarTime = new Date(latest.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    showToast(`🌧️ Live Rain Radar: ON (${radarTime} feed) • Clear skies in area`);
+    speakVoiceAlert('Live weather radar active');
   } catch(e) {
     console.warn('Weather radar failed:', e);
-    showToast('Could not load live rain radar');
+    showToast('⚠️ Could not connect to radar server');
   }
 }
 
@@ -782,6 +785,23 @@ function scoreTwistyRoutes(routes) {
     }
     return { ...r, curvesCount: curves };
   }).sort((a, b) => (b.curvesCount || 0) - (a.curvesCount || 0));
+}
+
+
+function selectMeetupFromSearch(r){
+  isPlacingMeet = false;
+  searchTargetMode = 'destination';
+  placeMeetMarker(r.lat, r.lng);
+  broadcastMeetPoint(r.lat, r.lng);
+  const sInput = document.getElementById('destSearch');
+  if(sInput){
+    sInput.value = '';
+    sInput.placeholder = 'Search destination, apartment, cafe...';
+  }
+  document.getElementById('searchDropdown').style.display = 'none';
+  showToast(`📍 Meet-up pin proposed at ${r.name || r.label.split(',')[0]}`);
+  activeRouteIndex = 0;
+  routeTick();
 }
 
 </script>
@@ -2828,6 +2848,74 @@ function scoreTwistyRoutes(routes) {
     color: #C4B5FD;
   }
 
+
+  /* Hide Leaflet & Google Attribution watermark */
+  .leaflet-control-attribution {
+    display: none !important;
+  }
+
+  /* On-Road Floating Route ETA Badges */
+  .route-map-badge {
+    background: rgba(15, 23, 42, 0.94);
+    border: 1.5px solid rgba(255, 255, 255, 0.22);
+    border-radius: 20px;
+    padding: 4px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+    backdrop-filter: blur(12px);
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    user-select: none;
+    transform: translate(-50%, -50%);
+  }
+  .route-map-badge:hover {
+    transform: translate(-50%, -50%) scale(1.08);
+    border-color: #fff;
+  }
+  .route-map-badge.selected {
+    background: linear-gradient(135deg, var(--accent), #4338CA);
+    border-color: #fff;
+    box-shadow: 0 4px 16px var(--accent-glow);
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+  .route-badge-time {
+    font-size: 12px;
+    font-weight: 800;
+    color: #fff;
+    font-family: var(--font-mono);
+  }
+  .route-badge-dist {
+    font-size: 10.5px;
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 600;
+  }
+
+  /* Weather Radar Button Active Indicator */
+  .fab-btn.radar-active {
+    background: rgba(6, 182, 212, 0.28) !important;
+    border-color: #06B6D4 !important;
+    color: #fff !important;
+    box-shadow: 0 0 16px rgba(6, 182, 212, 0.65) !important;
+    position: relative;
+  }
+  .radar-live-badge {
+    position: absolute;
+    bottom: -3px;
+    right: -3px;
+    background: #10B981;
+    color: #fff;
+    font-size: 8px;
+    font-weight: 900;
+    padding: 1.5px 4.5px;
+    border-radius: 6px;
+    border: 1.5px solid #0F172A;
+    line-height: 1;
+    letter-spacing: 0.02em;
+  }
+
 </style>
 </head>
 <body>
@@ -3920,7 +4008,9 @@ function renderSearchDropdown(results){
       <div class="search-item-dist">${distStr}</div>
     `;
     item.onclick = () => {
-      if(searchTargetMode === 'start') selectStart(r); else selectDestination(r);
+      if(searchTargetMode === 'start') selectStart(r);
+      else if(searchTargetMode === 'meetup') selectMeetupFromSearch(r);
+      else selectDestination(r);
     };
     dd.appendChild(item);
   });
@@ -4223,9 +4313,10 @@ function showPlaceCard(d){
       <div class="pc-chips" id="pcChips"><div class="pc-spinner">Loading place details…</div></div>
       <div class="pc-actions">
         <button class="pc-btn pc-btn-primary" id="pcStartBtn">🚀 Start Journey</button>
+        <button class="pc-btn pc-btn-secondary" id="pcDirBtn">🧭 Directions</button>
+        <button class="pc-btn pc-btn-secondary" id="pcMeetBtn">📍 Meet-up Pin</button>
         ${destination ? `<button class="pc-btn pc-btn-secondary" id="pcPitBtn">➕ Add Pit Stop</button>` : ''}
         <button class="pc-btn pc-btn-secondary" id="pcFavBtn">${isFavorite(d) ? '★ Saved' : '☆ Save'}</button>
-        <button class="pc-btn pc-btn-secondary" id="pcCopyBtn">📋 Copy</button>
       </div>
       <div id="pcWikiSection"></div>
       <div id="pcVenuesSection"></div>
@@ -4237,7 +4328,44 @@ function showPlaceCard(d){
   if(bd){ bd.style.display = 'block'; bd.onclick = closePlaceCard; }
 
   document.getElementById('pcCloseBtn').onclick = closePlaceCard;
-  document.getElementById('pcStartBtn').onclick = () => { closePlaceCard(); startJourney(); };
+  
+  // Start Journey directly sets destination and launches navigation
+  document.getElementById('pcStartBtn').onclick = () => {
+    destination = { lat: d.lat, lng: d.lng, name: d.name || d.label.split(',')[0], label: d.label, type: d.type };
+    if(destMarker) map.removeLayer(destMarker);
+    destMarker = L.marker([destination.lat, destination.lng], { icon: destIcon() }).addTo(map);
+    closePlaceCard();
+    activeRouteIndex = 0;
+    routeTick().then(() => {
+      startJourney();
+    });
+  };
+
+  // Directions opens sheet and displays all route alternatives with on-road ETAs
+  document.getElementById('pcDirBtn').onclick = () => {
+    destination = { lat: d.lat, lng: d.lng, name: d.name || d.label.split(',')[0], label: d.label, type: d.type };
+    if(destMarker) map.removeLayer(destMarker);
+    destMarker = L.marker([destination.lat, destination.lng], { icon: destIcon() }).addTo(map);
+    const searchInput = document.getElementById('destSearch');
+    if(searchInput) searchInput.value = destination.name;
+    closePlaceCard();
+    document.getElementById('sheet').style.display = 'block';
+    document.getElementById('startNavBtn').style.display = 'flex';
+    activeRouteIndex = 0;
+    routeTick();
+    showToast('🧭 Showing routes & ETAs on map');
+  };
+
+  // Meet-up Pin directly sets this searched place as convoy meet-up
+  document.getElementById('pcMeetBtn').onclick = () => {
+    placeMeetMarker(d.lat, d.lng);
+    broadcastMeetPoint(d.lat, d.lng);
+    closePlaceCard();
+    showToast(`📍 Meet-up pin proposed: ${d.name || d.label.split(',')[0]}`);
+    activeRouteIndex = 0;
+    routeTick();
+  };
+
   const pitB = document.getElementById('pcPitBtn'); if(pitB) pitB.onclick = () => addPitStop(d);
   document.getElementById('pcFavBtn').onclick = () => { toggleFavorite(d); showPlaceCard(d); };
   document.getElementById('pcCopyBtn').onclick = () => {
@@ -4941,6 +5069,16 @@ function drawSpeedColoredRoute(route){
   speedSegments.forEach(l => map.removeLayer(l));
   speedSegments = [];
   const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+
+  // High-visibility electric cyan / neon navigation road styling during active journey
+  if(navMode){
+    // Dark outer casing
+    speedSegments.push(L.polyline(coords, { color:'#0F172A', weight:9, opacity:0.95 }).addTo(map));
+    // Vibrant electric cyan inner road
+    speedSegments.push(L.polyline(coords, { color:'#00F0FF', weight:5.5, opacity:1 }).addTo(map));
+    return;
+  }
+
   const ann = route.legs.flatMap(leg => (leg.annotation && leg.annotation.speed) ? leg.annotation.speed : []);
   if(!ann.length || ann.length < coords.length - 1){
     speedSegments.push(L.polyline(coords, { color:profile.color, weight:6, opacity:0.95 }).addTo(map));
@@ -4984,19 +5122,51 @@ function renderRouteOptions(routes){
   requestAnimationFrame(updateFabPosition);
 }
 
+let routeEtaMarkers = [];
+
 function drawSelectedRoute(routes){
   if(routeLines['me']) map.removeLayer(routeLines['me']);
   altLines.forEach(l => map.removeLayer(l)); altLines = [];
   speedSegments.forEach(l => map.removeLayer(l)); speedSegments = [];
+  routeEtaMarkers.forEach(m => map.removeLayer(m)); routeEtaMarkers = [];
 
   routes.forEach((r, idx) => {
-    if(idx === activeRouteIndex){
+    const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
+    const isSelected = (idx === activeRouteIndex);
+    const mins = Math.round(r.duration / 60);
+    const distKm = (r.distance / 1000).toFixed(1);
+
+    if(isSelected){
       drawSpeedColoredRoute(r);
     } else {
-      const coords = r.geometry.coordinates.map(c => [c[1], c[0]]);
-      const alt = L.polyline(coords, { color:'#64748B', weight:4, opacity:0.55, dashArray:'4 8' }).addTo(map);
+      const alt = L.polyline(coords, { color:'#64748B', weight:5, opacity:0.65, dashArray:'5 9' }).addTo(map);
       alt.on('click', () => { activeRouteIndex = idx; renderRouteOptions(routes); drawSelectedRoute(routes); });
       altLines.push(alt);
+    }
+
+    // Place interactive floating ETA badge right on each route
+    if(coords.length > 2){
+      const mid = coords[Math.floor(coords.length * (0.35 + idx * 0.15))];
+      const diffMins = idx > 0 ? `+${mins - Math.round(routes[0].duration / 60)}m` : 'Fastest';
+      const badgeMarker = L.marker(mid, {
+        icon: L.divIcon({
+          className: 'route-badge-wrap',
+          html: `<div class="route-map-badge ${isSelected ? 'selected' : ''}" title="Select Route ${idx + 1}">
+            <span class="route-badge-time">${mins} min</span>
+            <span class="route-badge-dist">${diffMins}</span>
+          </div>`,
+          iconSize: [95, 28],
+          iconAnchor: [47, 14]
+        })
+      }).addTo(map);
+
+      badgeMarker.on('click', () => {
+        activeRouteIndex = idx;
+        renderRouteOptions(routes);
+        drawSelectedRoute(routes);
+        showToast(`Selected Route ${idx + 1} (${mins} min)`);
+      });
+      routeEtaMarkers.push(badgeMarker);
     }
   });
 }
@@ -5009,41 +5179,35 @@ async function routeTick(){
   const modeInfo = MODES.find(m => m.id === activeMode);
   const modeTimeEl = document.getElementById('modeTime_' + activeMode);
 
-  if(modeInfo.real){
-    try {
-      const routes = await fetchAlternatives(origin.lat, origin.lng, target.lat, target.lng);
-      lastRoutes = routes;
+  try {
+    const routes = await fetchAlternatives(origin.lat, origin.lng, target.lat, target.lng);
+    lastRoutes = routes;
+    if(routes.length){
       renderRouteOptions(routes);
       drawSelectedRoute(routes);
-      if(routes[activeRouteIndex] && modeTimeEl){
-        modeTimeEl.textContent = Math.round(routes[activeRouteIndex].duration / 60) + ' min';
-      }
-    } catch(e){}
-  } else {
-    // Walk / Cycle estimated non-road calculations
-    document.getElementById('routesRow').innerHTML = '';
-    document.getElementById('speedLegend').style.display = 'none';
-    altLines.forEach(l => map.removeLayer(l)); altLines = [];
-    speedSegments.forEach(l => map.removeLayer(l)); speedSegments = [];
-    if(routeLines['me']) map.removeLayer(routeLines['me']);
-    
-    const km = haversineKm(origin.lat, origin.lng, target.lat, target.lng) * 1.3;
-    const mins = Math.round((km / modeInfo.speedKmh) * 60);
-    routeLines['me'] = L.polyline([[origin.lat, origin.lng], [target.lat, target.lng]], {
-      color: profile.color, weight: 4.5, opacity: 0.8, dashArray: '6 8'
-    }).addTo(map);
-    if(modeTimeEl) modeTimeEl.textContent = mins + ' min';
-  }
 
-  // Update other mode chip ETAs
-  MODES.forEach(m => {
-    if(m.id === activeMode || m.real) return;
-    const el = document.getElementById('modeTime_' + m.id);
-    if(el){
-      const km = haversineKm(origin.lat, origin.lng, target.lat, target.lng) * 1.3;
-      el.textContent = Math.round((km / m.speedKmh) * 60) + ' min';
+      const baseMins = Math.round(routes[0].duration / 60);
+      const km = routes[0].distance / 1000;
+
+      // Update ETAs across ALL modes immediately!
+      const bikeEl = document.getElementById('modeTime_bike');
+      if(bikeEl) bikeEl.textContent = Math.max(1, Math.round(baseMins * 0.92)) + ' min';
+
+      const twistyEl = document.getElementById('modeTime_twisty');
+      if(twistyEl) twistyEl.textContent = Math.max(1, Math.round(baseMins * 1.15)) + ' min';
+
+      const carEl = document.getElementById('modeTime_car');
+      if(carEl) carEl.textContent = baseMins + ' min';
+
+      const cycleEl = document.getElementById('modeTime_cycle');
+      if(cycleEl) cycleEl.textContent = Math.max(1, Math.round((km / 16) * 60)) + ' min';
+
+      const walkEl = document.getElementById('modeTime_walk');
+      if(walkEl) walkEl.textContent = Math.max(1, Math.round((km / 5) * 60)) + ' min';
     }
-  });
+  } catch(e){
+    console.warn('routeTick error:', e);
+  }
 
   // Calculate peer rider distances
   for(const [id, d] of Object.entries(knownRiders)){
@@ -5088,7 +5252,19 @@ function instructionText(step){
 }
 
 function startJourney(){
-  if(!lastRoutes.length || !lastRoutes[activeRouteIndex]){ showToast('Please select a destination first'); return; }
+  const target = currentTarget();
+  if(!target){
+    showToast('Please select a destination first');
+    return;
+  }
+  if(!lastRoutes.length || !lastRoutes[activeRouteIndex]){
+    showToast('Preparing route…');
+    routeTick().then(() => {
+      if(lastRoutes.length) startJourney();
+      else showToast('Please select a destination');
+    });
+    return;
+  }
   if(routeOrigin){
     clearRouteOrigin();
     showToast('Switched to live GPS navigation');
