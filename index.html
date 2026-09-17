@@ -630,6 +630,160 @@ function releaseNavWakeLock() {
   }
 }
 
+
+/* ==========================================================================
+   FEATURE: Voice Search (Speech Recognition)
+   ========================================================================== */
+(function initVoiceSearch() {
+  const voiceBtn = document.getElementById('voiceSearchBtn');
+  const searchInput = document.getElementById('destSearch');
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!voiceBtn || !searchInput) return;
+
+  if (!SpeechRec) {
+    voiceBtn.title = 'Voice search not supported in this browser';
+    voiceBtn.style.opacity = '0.35';
+    voiceBtn.onclick = () => showToast('Voice search requires Chrome, Safari, or Edge');
+    return;
+  }
+
+  const rec = new SpeechRec();
+  rec.continuous = false;
+  rec.interimResults = true;
+  rec.lang = 'en-US';
+
+  let listening = false;
+
+  rec.onstart = () => {
+    listening = true;
+    voiceBtn.classList.add('listening');
+    voiceBtn.innerHTML = '🔴';
+    searchInput.placeholder = 'Listening… speak destination';
+    showToast('🎙️ Listening… speak destination now');
+  };
+
+  rec.onresult = (e) => {
+    const transcript = Array.from(e.results)
+      .map(r => r[0].transcript)
+      .join('');
+    searchInput.value = transcript;
+    const clearBtn = document.getElementById('searchClearBtn');
+    if (clearBtn) clearBtn.style.display = 'inline';
+  };
+
+  rec.onerror = (e) => {
+    listening = false;
+    voiceBtn.classList.remove('listening');
+    voiceBtn.innerHTML = '🎙️';
+    searchInput.placeholder = 'Search destination, apartment, cafe...';
+    if (e.error !== 'no-speech') {
+      showToast('Voice search error: ' + e.error);
+    }
+  };
+
+  rec.onend = () => {
+    listening = false;
+    voiceBtn.classList.remove('listening');
+    voiceBtn.innerHTML = '🎙️';
+    searchInput.placeholder = 'Search destination, apartment, cafe...';
+    const query = searchInput.value.trim();
+    if (query) {
+      showToast('Searching: ' + query);
+      const searchFn = typeof runSearch === 'function' ? runSearch : (window.runSearch || null);
+      if (searchFn) searchFn(false);
+    }
+  };
+
+  voiceBtn.onclick = (e) => {
+    e.stopPropagation();
+    if (listening) {
+      rec.stop();
+    } else {
+      try { rec.start(); } catch(err){ rec.stop(); }
+    }
+  };
+})();
+
+/* ==========================================================================
+   FEATURE 2: Live Doppler Weather Radar (RainViewer API)
+   ========================================================================== */
+let weatherRadarLayer = null;
+let weatherRadarActive = false;
+
+async function toggleWeatherRadar() {
+  weatherRadarActive = !weatherRadarActive;
+  const btn = document.getElementById('radarFab');
+  const menuOpt = document.getElementById('menuRadarOption');
+  const legend = document.getElementById('radarLegend');
+
+  if (btn) btn.classList.toggle('active', weatherRadarActive);
+  if (menuOpt) menuOpt.style.background = weatherRadarActive ? 'rgba(6,182,212,0.18)' : '';
+
+  if (!weatherRadarActive) {
+    if (weatherRadarLayer) {
+      map.removeLayer(weatherRadarLayer);
+      weatherRadarLayer = null;
+    }
+    if (legend) legend.style.display = 'none';
+    showToast('🌧️ Weather Radar turned OFF');
+    return;
+  }
+
+  showToast('🌧️ Loading live Doppler rain radar…');
+  try {
+    const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    const data = await res.json();
+    if (!data.radar || !data.radar.past || !data.radar.past.length) {
+      showToast('Radar data currently unavailable');
+      return;
+    }
+    const latest = data.radar.past[data.radar.past.length - 1];
+    const tileUrl = `${data.host}${latest.path}/256/{z}/{x}/{y}/2/1_1.png`;
+
+    if (weatherRadarLayer) map.removeLayer(weatherRadarLayer);
+    weatherRadarLayer = L.tileLayer(tileUrl, {
+      opacity: 0.75,
+      zIndex: 400,
+      attribution: 'Weather: RainViewer'
+    }).addTo(map);
+
+    if (legend) legend.style.display = 'flex';
+    showToast('🌧️ Live Rain & Storm Radar: Active');
+    speakVoiceAlert('Weather radar active. Showing live precipitation.');
+  } catch(e) {
+    console.warn('Weather radar failed:', e);
+    showToast('Could not load live rain radar');
+  }
+}
+
+const radarFabEl = document.getElementById('radarFab');
+if(radarFabEl) radarFabEl.onclick = toggleWeatherRadar;
+const menuRadarOptEl = document.getElementById('menuRadarOption');
+if(menuRadarOptEl) menuRadarOptEl.onclick = () => {
+  toggleWeatherRadar();
+  document.getElementById('layerMenu').classList.remove('open');
+};
+
+/* ==========================================================================
+   FEATURE 5: "Twisty Roads" / Scenic Curve Hunter
+   ========================================================================== */
+function scoreTwistyRoutes(routes) {
+  if (!routes || routes.length <= 1) return routes;
+  return routes.map(r => {
+    const coords = r.geometry.coordinates;
+    let curves = 0;
+    for (let i = 1; i < coords.length - 1; i++) {
+      const b1 = Math.atan2(coords[i][1] - coords[i-1][1], coords[i][0] - coords[i-1][0]);
+      const b2 = Math.atan2(coords[i+1][1] - coords[i][1], coords[i+1][0] - coords[i][0]);
+      let diff = Math.abs((b2 - b1) * (180 / Math.PI));
+      if (diff > 180) diff = 360 - diff;
+      if (diff > 22 && diff < 160) curves++;
+    }
+    return { ...r, curvesCount: curves };
+  }).sort((a, b) => (b.curvesCount || 0) - (a.curvesCount || 0));
+}
+
 </script>
 <style>
   :root {
@@ -2577,6 +2731,103 @@ function releaseNavWakeLock() {
     background: rgba(79, 70, 229, 0.28) !important;
   }
 
+
+  /* Google Maps Style Search Pin Emblem */
+  .search-pin-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    flex-shrink: 0;
+  }
+
+  /* Search Voice Button */
+  .search-voice-btn {
+    background: none;
+    border: none;
+    font-size: 16px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    margin-right: 4px;
+    line-height: 1;
+    outline: none;
+  }
+  .search-voice-btn:hover {
+    color: var(--accent-light);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .search-voice-btn.listening {
+    animation: voiceRecordingPulse 0.9s infinite alternate;
+    color: #EF4444;
+  }
+  @keyframes voiceRecordingPulse {
+    from { transform: scale(1); filter: drop-shadow(0 0 2px #EF4444); }
+    to { transform: scale(1.25); filter: drop-shadow(0 0 10px #EF4444); }
+  }
+
+  /* Live GPS Pulsing Beacon Icon */
+  .live-gps-beacon {
+    position: relative;
+    width: 14px;
+    height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-right: 2px;
+  }
+  .beacon-core {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #06B6D4;
+    box-shadow: 0 0 8px #06B6D4;
+    z-index: 2;
+  }
+  .beacon-wave {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 1.5px solid #06B6D4;
+    animation: beaconRipple 1.6s infinite cubic-bezier(0.2, 0.6, 0.35, 1);
+  }
+  @keyframes beaconRipple {
+    0% { transform: scale(0.7); opacity: 1; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
+
+  /* Weather Radar Legend */
+  .radar-legend {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--panel-glass);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: blur(16px);
+  }
+
+  /* Twisty Mode Route Badge */
+  .mode-pill[data-mode="twisty"].selected {
+    border-color: #8B5CF6;
+    background: rgba(139, 92, 246, 0.15);
+  }
+  .mode-pill[data-mode="twisty"].selected .label {
+    color: #C4B5FD;
+  }
+
 </style>
 </head>
 <body>
@@ -2677,8 +2928,22 @@ function releaseNavWakeLock() {
 <!-- Top Navigation Floating Island -->
 <header class="top-header" style="display:none;" id="topHeader">
   <div class="search-island">
-    <div class="search-icon-left">🔍</div>
+    <div class="search-pin-icon" title="Convoy Navigation">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2Z" fill="url(#gmapsPinGrad)"/>
+        <circle cx="12" cy="9" r="3.2" fill="#FFFFFF"/>
+        <defs>
+          <linearGradient id="gmapsPinGrad" x1="5" y1="2" x2="19" y2="22" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#EA4335"/>
+            <stop offset="35%" stop-color="#FBBC04"/>
+            <stop offset="70%" stop-color="#34A853"/>
+            <stop offset="100%" stop-color="#4285F4"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
     <input id="destSearch" placeholder="Search destination, apartment, cafe..." autocomplete="off">
+    <button class="search-voice-btn" id="voiceSearchBtn" title="Voice Search (Speak Destination)">🎙️</button>
     <button class="search-clear-btn" id="searchClearBtn">✕</button>
     <div class="header-actions">
       <div class="trip-code-pill" id="codeDisplay" title="Click to share trip code / QR">···</div>
@@ -2691,8 +2956,9 @@ function releaseNavWakeLock() {
   <div class="sub-header-wrapper">
     <button class="sub-scroll-btn sub-scroll-prev" id="subScrollPrev" title="Scroll left">‹</button>
     <div class="sub-header-row" id="subHeaderRow">
-      <div class="start-pill" id="startPill">
-        <span>📍 Start: Live Location</span>
+      <div class="start-pill" id="startPill" title="Tap to choose start point or reset">
+        <span class="live-gps-beacon"><span class="beacon-core"></span><span class="beacon-wave"></span></span>
+        <span id="startPillText">Start: Live GPS</span>
         <button class="clear-start-btn" id="startClearBtn" title="Reset to live GPS">✕</button>
       </div>
       <div class="cat-chip chip-paste" id="pasteLinkChip" title="Paste Google Maps or Apple Maps Link">📋 Paste Link</div>
@@ -2701,6 +2967,9 @@ function releaseNavWakeLock() {
       <div class="cat-chip" data-cat="food">🍔 Food</div>
       <div class="cat-chip" data-cat="metro">🚇 Metro</div>
       <div class="cat-chip" data-cat="hospital">🏥 Hospital</div>
+      <div class="cat-chip" data-cat="parking">🅿️ Parking</div>
+      <div class="cat-chip" data-cat="hotel">🏨 Hotels</div>
+      <div class="cat-chip" data-cat="atm">🏧 ATM</div>
     </div>
     <button class="sub-scroll-btn sub-scroll-next" id="subScrollNext" title="Scroll right">›</button>
   </div>
@@ -2718,6 +2987,7 @@ function releaseNavWakeLock() {
 
 <!-- Floating Action Buttons (Recenter & Map Layer) -->
 <div class="fab-group" id="fabGroup" style="display:none;">
+  <button class="fab-btn" id="radarFab" title="Toggle Live Rain / Storm Radar">🌧️</button>
   <button class="fab-btn" id="compassFab" title="Toggle Head-Up / North-Up Mode">🧭</button>
   <button class="fab-btn" id="layerFab" title="Switch Map Style">🗺️</button>
   <button class="fab-btn" id="recenterBtn" title="Center Live Location">⌖</button>
@@ -2729,6 +2999,7 @@ function releaseNavWakeLock() {
   <div class="layer-option" data-layer="satellite">🛰️ Satellite Hybrid</div>
   <div class="layer-option" data-layer="dark">🌙 Dark Obsidian</div>
   <div class="layer-option" data-layer="esri">🌐 Esri World</div>
+  <div class="layer-option" id="menuRadarOption" style="border-top:1px solid var(--border);color:#06B6D4;">🌧️ Live Rain Radar</div>
 </div>
 
 <!-- Bottom Mobility Sheet -->
@@ -2742,6 +3013,12 @@ function releaseNavWakeLock() {
   <div class="routes-row" id="routesRow"></div>
 
   <!-- Speed / Traffic Legend -->
+  <div class="radar-legend" id="radarLegend">
+    <span>🌧️ Rain Radar:</span>
+    <span style="background:#06B6D4;color:#000;padding:2px 6px;border-radius:4px;font-weight:700;">Light</span>
+    <span style="background:#F59E0B;color:#000;padding:2px 6px;border-radius:4px;font-weight:700;">Moderate</span>
+    <span style="background:#EF4444;color:#fff;padding:2px 6px;border-radius:4px;font-weight:700;">Heavy Storm</span>
+  </div>
   <div class="speed-legend" id="speedLegend" style="display:none;">
     <span><i style="background:var(--speed-fast)"></i> Fast flow</span>
     <span><i style="background:var(--speed-med)"></i> Moderate</span>
@@ -2933,6 +3210,7 @@ const COLORS = [
 const ICONS = ['🏍️', '🛵', '🚲', '🚗', '🚶', '🛺', '🚙', '🏎️'];
 const MODES = [
   { id:'bike', label:'Bike', em:'🏍️', speedKmh:null, real:true },
+  { id:'twisty', label:'Twisty', em:'🏔️', speedKmh:null, real:true, twisty:true },
   { id:'car', label:'Car', em:'🚗', speedKmh:null, real:true },
   { id:'cycle', label:'Cycle', em:'🚲', speedKmh:16, real:false },
   { id:'walk', label:'Walk', em:'🚶', speedKmh:5, real:false }
@@ -3676,7 +3954,7 @@ function selectStart(r){
 
   const pill = document.getElementById('startPill');
   pill.classList.add('custom');
-  pill.querySelector('span').textContent = '📍 Start: ' + r.label.split(',')[0];
+  document.getElementById('startPillText').textContent = 'Start: ' + r.label.split(',')[0];
 
   document.getElementById('destSearch').placeholder = 'Search destination, apartment, cafe...';
   document.getElementById('searchDropdown').style.display = 'none';
@@ -3691,7 +3969,7 @@ function clearRouteOrigin(){
   if(startMarker){ map.removeLayer(startMarker); startMarker = null; }
   const pill = document.getElementById('startPill');
   pill.classList.remove('custom');
-  pill.querySelector('span').textContent = '📍 Start: Live Location';
+  document.getElementById('startPillText').textContent = 'Start: Live GPS';
   activeRouteIndex = 0;
   routeTick();
 }
@@ -4634,7 +4912,11 @@ async function fetchAlternatives(fromLat, fromLng, toLat, toLng){
     const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson&alternatives=true&steps=true&annotations=true`;
     const res = await fetch(url);
     const data = await res.json();
-    if (data.routes && data.routes.length) {
+    let routes = data.routes || [];
+    if (activeMode === 'twisty' && routes.length > 1) {
+      routes = scoreTwistyRoutes(routes);
+    }
+    if (routes.length) {
       cacheActiveRoute(data.routes[0]);
     }
     return data.routes || [];
