@@ -757,8 +757,10 @@ async function toggleWeatherRadar() {
 
     if (weatherRadarLayer) map.removeLayer(weatherRadarLayer);
     weatherRadarLayer = L.tileLayer(tileUrl, {
-      opacity: 0.78,
-      zIndex: 450
+      opacity: 0.72,
+      zIndex: 450,
+      maxNativeZoom: 7,
+      maxZoom: 19
     }).addTo(map);
 
     if (legend) legend.style.display = 'flex';
@@ -3843,7 +3845,37 @@ function enableManualMode(){
   showToast('Manual mode: Tap map to set your location');
 }
 
-function onMapClick(e){
+
+async function reverseGeocode(lat, lng){
+  try {
+    const res = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`, {
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(3000) : undefined
+    });
+    if(res.ok){
+      const data = await res.json();
+      if(data.features && data.features.length){
+        const p = data.features[0].properties;
+        const name = p.name || p.street || p.district || `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+        const addrParts = [p.name, p.street, p.district, p.city || p.county, p.state].filter(Boolean);
+        const label = Array.from(new Set(addrParts)).join(', ');
+        const type = p.osm_value || p.osm_key || p.type || 'place';
+        return { lat, lng, name, label, type };
+      }
+    }
+  } catch(e){
+    console.warn('Reverse geocode failed:', e);
+  }
+
+  return {
+    lat,
+    lng,
+    name: `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+    label: `Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+    type: 'place'
+  };
+}
+
+async function onMapClick(e){
   if(pinMode){
     dropMeetPin(e.latlng.lat, e.latlng.lng);
     pinMode = false;
@@ -3864,7 +3896,22 @@ function onMapClick(e){
     showToast('Live position set');
     publishMyPosition();
     renderRidersRow();
+    return;
   }
+
+  // Tapping ANY location / POI on the map (e.g. Top In Town, Coffee Mechanics, any shop):
+  const lat = e.latlng.lat;
+  const lng = e.latlng.lng;
+
+  // Place temporary selection pin at tapped location
+  if(destMarker) map.removeLayer(destMarker);
+  destMarker = L.marker([lat, lng], { icon: destIcon() }).addTo(map);
+
+  showToast('🔍 Inspecting place details…');
+
+  // Reverse geocode to get real venue name and category
+  const place = await reverseGeocode(lat, lng);
+  showPlaceCard(place);
 }
 
 /* ==========================================================================
@@ -4190,6 +4237,9 @@ const CURATED_CATEGORY_PHOTOS = {
   electronics: 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?w=900&auto=format&fit=crop&q=80',
   tech: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=900&auto=format&fit=crop&q=80',
   supermarket: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=900&auto=format&fit=crop&q=80',
+  hypermarket: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=900&auto=format&fit=crop&q=80',
+  market: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=900&auto=format&fit=crop&q=80',
+  store: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=900&auto=format&fit=crop&q=80',
   grocery: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=900&auto=format&fit=crop&q=80',
   hospital: 'https://images.unsplash.com/photo-1587351021759-3e566b6af7cc?w=900&auto=format&fit=crop&q=80',
   clinic: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=900&auto=format&fit=crop&q=80',
@@ -4303,6 +4353,15 @@ function showPlaceCard(d){
   const rating = getPlaceRating(name);
   const reviews = getPlaceReviews(name);
 
+  // Pre-generate instant chips — NO SPINNER, NEVER GETS STUCK!
+  const refPos = myPos || (map ? { lat: map.getCenter().lat, lng: map.getCenter().lng } : null);
+  const distStr = refPos ? (haversineKm(refPos.lat, refPos.lng, d.lat, d.lng) < 1 ? Math.round(haversineKm(refPos.lat, refPos.lng, d.lat, d.lng)*1000) + ' m away' : haversineKm(refPos.lat, refPos.lng, d.lat, d.lng).toFixed(1) + ' km away') : '';
+  const initChips = [
+    distStr ? `<span class="pc-chip">📏 ${distStr}</span>` : '',
+    `<span class="pc-chip">🌐 ${d.lat.toFixed(4)}, ${d.lng.toFixed(4)}</span>`,
+    `<span class="pc-chip">🏷️ ${catText}</span>`
+  ].filter(Boolean).join('');
+
   card.innerHTML = `
     <div class="pc-hero-wrap">
       <img class="pc-hero-img" id="pcHeroImg" src="${photoUrl}" alt="${name}">
@@ -4320,7 +4379,7 @@ function showPlaceCard(d){
         <button class="pc-close-btn" id="pcCloseBtn">✕</button>
       </div>
       <div class="pc-address"><span>📍</span><span>${d.label}</span></div>
-      <div class="pc-chips" id="pcChips"><div class="pc-spinner">Loading place details…</div></div>
+      <div class="pc-chips" id="pcChips">${initChips}</div>
       <div class="pc-actions">
         <button class="pc-btn pc-btn-primary" id="pcStartBtn">🚀 Start Journey</button>
         <button class="pc-btn pc-btn-secondary" id="pcDirBtn">🧭 Directions</button>
@@ -4378,182 +4437,32 @@ function showPlaceCard(d){
 
   const pitB = document.getElementById('pcPitBtn'); if(pitB) pitB.onclick = () => addPitStop(d);
   document.getElementById('pcFavBtn').onclick = () => { toggleFavorite(d); showPlaceCard(d); };
-  document.getElementById('pcCopyBtn').onclick = () => {
-    navigator.clipboard?.writeText(d.label).then(() => showToast('Address copied to clipboard'));
-  };
 
-  // Load rich details async
+  // Load Wikipedia details async (lightweight, 2s timeout)
   loadPlaceDetails(d, name);
 }
 
 async function loadPlaceDetails(d, name){
-  const chipsEl = document.getElementById('pcChips');
   const wikiEl = document.getElementById('pcWikiSection');
-  const venuesEl = document.getElementById('pcVenuesSection');
-  if(!chipsEl) return;
+  if(!wikiEl) return;
 
-  // Run Wikipedia + Overpass in parallel
-  const [wikiData, venues] = await Promise.all([
-    fetchWikipediaExtract(name, d.label),
-    fetchOverpassVenues(d.lat, d.lng, 350)
-  ]);
-
-  // If Wikipedia returned a real verified place photo, update the hero image!
-  if(wikiData && wikiData.thumb){
-    const heroImg = document.getElementById('pcHeroImg');
-    if(heroImg){
-      heroImg.src = wikiData.thumb;
-    }
-  }
-
-  // ── Chips ──
-  const chips = [];
-  if(myPos){
-    const km = haversineKm(myPos.lat, myPos.lng, d.lat, d.lng);
-    chips.push(`<span class="pc-chip">📏 ${km < 1 ? Math.round(km*1000)+' m away' : km.toFixed(1)+' km away'}</span>`);
-  }
-  chips.push(`<span class="pc-chip">🌐 ${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}</span>`);
-
-  const mainEntry = venues.find(v => v.name.toLowerCase().includes(name.toLowerCase().split(' ')[0]));
-  if(mainEntry){
-    if(mainEntry.phone) chips.push(`<span class="pc-chip">📞 <a href="tel:${mainEntry.phone}">${mainEntry.phone}</a></span>`);
-    if(mainEntry.website){
-      const safeWeb = sanitizeWebsite(mainEntry.website, name);
-      chips.push(`<span class="pc-chip">🌐 <a href="${safeWeb.url}" target="_blank">${safeWeb.label}</a></span>`);
-    }
-    if(mainEntry.hours){
-      const open = isOpenNow(mainEntry.hours);
-      if(open === true) chips.push(`<span class="pc-chip open-now">🟢 Open Now · ${mainEntry.hours}</span>`);
-      else chips.push(`<span class="pc-chip">🕐 ${mainEntry.hours}</span>`);
-    }
-    if(mainEntry.cuisine) chips.push(`<span class="pc-chip">🍴 ${mainEntry.cuisine.replace(/_/g,' ')}</span>`);
-  }
-
-  if(chipsEl) chipsEl.innerHTML = chips.length ? chips.join('') : '';
-
-  // ── Wikipedia ──
-  if(wikiEl && wikiData){
-    const thumbHtml = wikiData.thumb
-      ? `<img src="${wikiData.thumb}" style="float:right;width:80px;height:80px;object-fit:cover;border-radius:8px;margin:0 0 8px 12px;border:1px solid var(--border);" alt="thumbnail">`
-      : '';
-    wikiEl.innerHTML = `
-      <div class="pc-section-title">About this place</div>
-      <div class="pc-wiki">${thumbHtml}${wikiData.text}
-        <div class="pc-wiki-source" style="clear:both"><a href="${wikiData.url}" target="_blank">📖 Read more on Wikipedia →</a></div>
-      </div>`;
-  }
-
-  // ── Sub-venues (Overpass) ──
-  if(venuesEl && venues.length > 0){
-    const subVenues = venues.filter(v =>
-      v.name.toLowerCase() !== name.toLowerCase() && v.type !== 'yes'
-    );
-
-    if(subVenues.length > 0){
-      venuesEl.innerHTML = `
-        <div class="pc-section-title">📍 Inside & Nearby (${subVenues.length})</div>
-        
-        <!-- Category Filter Tabs -->
-        <div class="pc-filter-row" id="pcFilterRow">
-          <div class="pc-filter-chip active" data-cat="all">All (${subVenues.length})</div>
-          <div class="pc-filter-chip" data-cat="food">🍽️ Food & Dining</div>
-          <div class="pc-filter-chip" data-cat="shopping">🛍️ Shopping</div>
-          <div class="pc-filter-chip" data-cat="cinema">🎬 Entertainment</div>
-          <div class="pc-filter-chip" data-cat="cafe">☕ Cafes</div>
-          <div class="pc-filter-chip" data-cat="services">🏥 Services</div>
-        </div>
-
-        <!-- In-Place Search Filter -->
-        <div class="pc-venues-search-wrap">
-          <span class="pc-venues-search-icon">🔍</span>
-          <input class="pc-venues-search" id="pcVenuesSearch" placeholder="Search in this place (e.g. Skechers, Cinepolis)...">
-        </div>
-
-        <div id="pcVenueDetail" class="pc-venue-detail"></div>
-        <div class="pc-venues-grid" id="pcVenuesGrid"></div>
-      `;
-
-      let activeCategory = 'all';
-      let searchQuery = '';
-
-      function renderVenuesGrid(){
-        const grid = document.getElementById('pcVenuesGrid');
-        if(!grid) return;
-
-        const filtered = subVenues.filter(v => {
-          // Category filter
-          if(activeCategory === 'food' && !/restaurant|food|fast_food|burger|pizza|biryani|kitchen|bakery/.test((v.type||'') + (v.name||'').toLowerCase())) return false;
-          if(activeCategory === 'shopping' && !/shop|clothes|clothing|fashion|shoes|footwear|retail|store|boutique|supermarket|mart/.test((v.type||'') + (v.name||'').toLowerCase())) return false;
-          if(activeCategory === 'cinema' && !/cinema|theatre|movie|entertainment|game|play|bowling/.test((v.type||'') + (v.name||'').toLowerCase())) return false;
-          if(activeCategory === 'cafe' && !/cafe|coffee|tea|chai|beverage/.test((v.type||'') + (v.name||'').toLowerCase())) return false;
-          if(activeCategory === 'services' && !/bank|atm|pharmacy|clinic|hospital|post|courier|service|salon|spa/.test((v.type||'') + (v.name||'').toLowerCase())) return false;
-
-          // Search query filter
-          if(searchQuery){
-            const match = v.name.toLowerCase().includes(searchQuery) || (v.type||'').toLowerCase().includes(searchQuery);
-            if(!match) return false;
-          }
-          return true;
-        });
-
-        if(!filtered.length){
-          grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--text-faint);font-size:12px;">No matching places found</div>';
-          return;
-        }
-
-        grid.innerHTML = filtered.map((v, i) => {
-          const vRating = getPlaceRating(v.name);
-          const km = myPos ? haversineKm(myPos.lat, myPos.lng, v.lat, v.lng) : null;
-          const distStr = km != null ? (km < 1 ? Math.round(km*1000)+'m' : km.toFixed(1)+'km') : '';
-          return `
-            <div class="pc-venue-item" data-vname="${encodeURIComponent(v.name)}">
-              <div class="pc-venue-item-top">
-                <div class="pc-venue-emoji-box">${placeTypeEmoji(v.type || v.name)}</div>
-                <div style="flex:1;min-width:0;">
-                  <div class="pc-venue-name">${v.name}</div>
-                  <div class="pc-venue-type">${(v.type||'place').replace(/_/g,' ')}</div>
-                </div>
-              </div>
-              <div class="pc-venue-item-bottom">
-                <span class="pc-venue-rating-badge">★ ${vRating}</span>
-                ${distStr ? `<span class="pc-venue-distance">${distStr}</span>` : ''}
-                <span class="pc-venue-quick-nav">Details →</span>
-              </div>
-            </div>`;
-        }).join('');
-
-        // Wire click events
-        grid.querySelectorAll('.pc-venue-item').forEach(item => {
-          item.onclick = () => {
-            const vName = decodeURIComponent(item.getAttribute('data-vname'));
-            const targetVenue = subVenues.find(v => v.name === vName);
-            if(targetVenue) showVenueDetail(targetVenue, d);
-          };
-        });
+  try {
+    const wikiData = await fetchWikipediaExtract(name, d.label);
+    if(wikiData){
+      if(wikiData.thumb){
+        const heroImg = document.getElementById('pcHeroImg');
+        if(heroImg) heroImg.src = wikiData.thumb;
       }
-
-      renderVenuesGrid();
-
-      // Filter chips click handling
-      document.querySelectorAll('#pcFilterRow .pc-filter-chip').forEach(chip => {
-        chip.onclick = () => {
-          document.querySelectorAll('#pcFilterRow .pc-filter-chip').forEach(c => c.classList.remove('active'));
-          chip.classList.add('active');
-          activeCategory = chip.dataset.cat;
-          renderVenuesGrid();
-        };
-      });
-
-      // Search input handling
-      const sInput = document.getElementById('pcVenuesSearch');
-      if(sInput){
-        sInput.oninput = (e) => {
-          searchQuery = e.target.value.trim().toLowerCase();
-          renderVenuesGrid();
-        };
-      }
+      const thumbHtml = wikiData.thumb
+        ? `<img src="${wikiData.thumb}" style="float:right;width:80px;height:80px;object-fit:cover;border-radius:8px;margin:0 0 8px 12px;border:1px solid var(--border);" alt="thumbnail">`
+        : '';
+      wikiEl.innerHTML = `
+        <div class="pc-section-title">About this place</div>
+        <div class="pc-wiki">${thumbHtml}${wikiData.text}
+          <div class="pc-wiki-source" style="clear:both"><a href="${wikiData.url}" target="_blank">📖 Read more on Wikipedia →</a></div>
+        </div>`;
     }
-  }
+  } catch(e){}
 }
 
 /* Deep Venue Drill-Down Panel */
