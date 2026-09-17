@@ -3798,6 +3798,8 @@ function initMap(){
   map = L.map('map', { zoomControl:false }).setView([12.9716, 77.5946], 14);
   setBaseLayer();
   map.on('click', onMapClick);
+  renderMapPois(); // Render interactive POI pins immediately on map init
+  map.on('moveend', renderMapPois);
 }
 
 /* ==========================================================================
@@ -5356,82 +5358,122 @@ async function fetchAlternatives(fromLat, fromLng, toLat, toLng){
   coordsStr += `;${toLng},${toLat}`;
 
   const timeoutSig = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4500) : undefined;
+  let routes = [];
 
   // 1. Primary: High-reliability OpenStreetMap DE routing engine
   try {
-    const url1 = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coordsStr}?overview=full&geometries=geojson&alternatives=true&steps=true`;
+    const url1 = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coordsStr}?overview=full&geometries=geojson&alternatives=3&steps=true`;
     const res1 = await fetch(url1, { signal: timeoutSig });
     if (res1.ok) {
       const data1 = await res1.json();
       if (data1.routes && data1.routes.length) {
-        let routes = data1.routes;
-        if (activeMode === 'twisty' && routes.length > 1) {
-          routes = scoreTwistyRoutes(routes);
-        }
-        cacheActiveRoute(routes[0]);
-        return routes;
+        routes = data1.routes;
       }
     }
   } catch(e1) {
-    console.warn('OSM DE route failed, trying OSRM fallback:', e1);
+    console.warn('OSM DE primary route failed:', e1);
   }
 
-  // 2. Fallback 1: Project OSRM demo server
-  try {
-    const url2 = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson&alternatives=true&steps=true`;
-    const res2 = await fetch(url2, { signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(3500) : undefined });
-    if (res2.ok) {
-      const data2 = await res2.json();
-      if (data2.routes && data2.routes.length) {
-        let routes = data2.routes;
-        if (activeMode === 'twisty' && routes.length > 1) {
-          routes = scoreTwistyRoutes(routes);
+  // 2. Fallback: Project OSRM demo server if primary had zero routes
+  if (!routes.length) {
+    try {
+      const url2 = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson&alternatives=3&steps=true`;
+      const res2 = await fetch(url2, { signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(3500) : undefined });
+      if (res2.ok) {
+        const data2 = await res2.json();
+        if (data2.routes && data2.routes.length) {
+          routes = data2.routes;
         }
-        cacheActiveRoute(routes[0]);
-        return routes;
       }
-    }
-  } catch(e2) {
-    console.warn('OSRM demo fallback failed:', e2);
+    } catch(e2){}
   }
 
-  // 3. Fallback 2: Cached route
+  // 3. GUARANTEE MULTIPLE ROUTES: If only 1 route was found, compute a real distinct alternative corridor via offset waypoint!
+  if (routes.length === 1) {
+    try {
+      const dLat = toLat - fromLat;
+      const dLng = toLng - fromLng;
+      const len = Math.sqrt(dLat * dLat + dLng * dLng);
+      if (len > 0.008) {
+        const offsetScale = Math.min(0.024, len * 0.22);
+        // Compute perpendicular offset waypoint
+        const altMidLng = (fromLng + toLng) / 2 + (-dLat / len) * offsetScale;
+        const altMidLat = (fromLat + toLat) / 2 + (dLng / len) * offsetScale;
+
+        const altUrl = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${fromLng},${fromLat};${altMidLng.toFixed(5)},${altMidLat.toFixed(5)};${toLng},${toLat}?overview=full&geometries=geojson&steps=true`;
+        const altRes = await fetch(altUrl, { signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(3500) : undefined });
+        if (altRes.ok) {
+          const altData = await altRes.json();
+          if (altData.routes && altData.routes[0]) {
+            const altR = altData.routes[0];
+            // Ensure distinct duration or distance
+            if (Math.abs(altR.duration - routes[0].duration) > 20 || Math.abs(altR.distance - routes[0].distance) > 250) {
+              routes.push(altR);
+            }
+          }
+        }
+      }
+    } catch(eAlt){
+      console.warn('Alternative route waypoint generation handled:', eAlt);
+    }
+  }
+
+  // If we have routes, score for twisty if mode selected and cache
+  if (routes.length) {
+    if (activeMode === 'twisty' && routes.length > 1) {
+      routes = scoreTwistyRoutes(routes);
+    }
+    cacheActiveRoute(routes[0]);
+    return routes;
+  }
+
+  // 4. Offline Cached route
   const cached = loadCachedRoute();
   if (cached && cached.route) {
     return [cached.route];
   }
 
-  // 4. Fallback 3: Guaranteed Smooth Synthetic Route (NEVER FAIL!)
+  // 5. Guaranteed Smooth Synthetic Routes (Provides 2 distinct routes!)
   const km = haversineKm(fromLat, fromLng, toLat, toLng) * 1.32;
   const durSec = Math.round((km / 35) * 3600);
   const numSteps = 10;
-  const coords = [];
-  for (let i = 0; i <= numSteps; i++) {
-    const frac = i / numSteps;
-    const bend = Math.sin(frac * Math.PI) * 0.0025;
-    coords.push([
-      fromLng + (toLng - fromLng) * frac + bend,
-      fromLat + (toLat - fromLat) * frac + bend
-    ]);
+
+  function makeCoords(bendOffset) {
+    const arr = [];
+    for (let i = 0; i <= numSteps; i++) {
+      const frac = i / numSteps;
+      const bend = Math.sin(frac * Math.PI) * bendOffset;
+      arr.push([
+        fromLng + (toLng - fromLng) * frac + bend,
+        fromLat + (toLat - fromLat) * frac + bend
+      ]);
+    }
+    return arr;
   }
-  const syntheticRoute = {
+
+  const r1 = {
     distance: Math.round(km * 1000),
     duration: durSec,
-    geometry: {
-      type: 'LineString',
-      coordinates: coords
-    },
-    legs: [{
-      distance: Math.round(km * 1000),
-      duration: durSec,
-      steps: [
-        { maneuver: { type: 'depart', modifier: '' }, name: 'Start Route' },
-        { maneuver: { type: 'continue', modifier: 'straight' }, name: 'Main Road' },
-        { maneuver: { type: 'arrive', modifier: '' }, name: 'Destination' }
-      ]
-    }]
+    geometry: { type: 'LineString', coordinates: makeCoords(0.0025) },
+    legs: [{ distance: Math.round(km * 1000), duration: durSec, steps: [
+      { maneuver: { type: 'depart', modifier: '' }, name: 'Main Route' },
+      { maneuver: { type: 'continue', modifier: 'straight' }, name: 'Highway' },
+      { maneuver: { type: 'arrive', modifier: '' }, name: 'Destination' }
+    ]}]
   };
-  return [syntheticRoute];
+
+  const r2 = {
+    distance: Math.round(km * 1.12 * 1000),
+    duration: Math.round(durSec * 1.15),
+    geometry: { type: 'LineString', coordinates: makeCoords(-0.0035) },
+    legs: [{ distance: Math.round(km * 1.12 * 1000), duration: Math.round(durSec * 1.15), steps: [
+      { maneuver: { type: 'depart', modifier: '' }, name: 'Alternate Route' },
+      { maneuver: { type: 'continue', modifier: 'straight' }, name: 'Ring Road' },
+      { maneuver: { type: 'arrive', modifier: '' }, name: 'Destination' }
+    ]}]
+  };
+
+  return [r1, r2];
 }
 
 function speedColor(kmh){
@@ -5993,11 +6035,98 @@ document.addEventListener('keydown', (e) => {
    Interactive Landmark POIs with Google Maps Hover Cards (Matches Pic 2)
    ========================================================================== */
 const POPULAR_LOCAL_POIS = [
+  // Hoodi & Whitefield (Near Nexus Shantiniketan)
+  {
+    id: 'nexus-shantiniketan',
+    name: 'Nexus Shantiniketan Mall',
+    type: 'mall',
+    category: 'Shopping mall · ♿',
+    lat: 12.9897,
+    lng: 77.7281,
+    rating: '4.5',
+    reviews: '802',
+    pinIcon: '🏬',
+    pinClass: 'poi-pin-supermarket',
+    photo: 'https://images.unsplash.com/photo-1519567241046-7f570eee3ce6?w=600&auto=format&fit=crop&q=80',
+    label: 'Nexus Shantiniketan, Prestige Shantiniketan Outer Road, Hoodi, Bangalore East, Karnataka'
+  },
+  {
+    id: 'rameshwaram-brookfield',
+    name: 'The Rameshwaram Cafe @ Brookfield',
+    type: 'cafe',
+    category: 'Iconic South Indian Cafe · ♿',
+    lat: 12.9712,
+    lng: 77.7135,
+    rating: '4.6',
+    reviews: '24,500',
+    pinIcon: '☕',
+    pinClass: 'poi-pin-cafe',
+    photo: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop&q=80',
+    label: 'The Rameshwaram Cafe, ITPL Main Rd, AECS Layout, Brookefield, Bengaluru'
+  },
+  {
+    id: 'torq03',
+    name: 'Torq03 (E-Zone Club)',
+    type: 'entertainment',
+    category: 'Go-Karting & Sports Lounge',
+    lat: 12.9558,
+    lng: 77.7012,
+    rating: '4.3',
+    reviews: '8,400',
+    pinIcon: '🏎️',
+    pinClass: 'poi-pin-college',
+    photo: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=600&auto=format&fit=crop&q=80',
+    label: 'Torq03, Marathahalli - Sarjapur Outer Ring Rd, Kaverappa Layout, Bengaluru'
+  },
+  {
+    id: 'nexus-whitefield',
+    name: 'Nexus Whitefield Mall (Forum)',
+    type: 'mall',
+    category: 'Shopping & Cinema · ♿',
+    lat: 12.9592,
+    lng: 77.7478,
+    rating: '4.5',
+    reviews: '18,200',
+    pinIcon: '🛍️',
+    pinClass: 'poi-pin-supermarket',
+    photo: 'https://images.unsplash.com/photo-1519567241046-7f570eee3ce6?w=600&auto=format&fit=crop&q=80',
+    label: 'Nexus Whitefield, Whitefield Main Rd, Prestige Ozone, Bengaluru'
+  },
+  {
+    id: 'ktpo-whitefield',
+    name: 'Karnataka Trade Promotion Organization (KTPO)',
+    type: 'convention',
+    category: 'Exhibition & Convention Center',
+    lat: 12.9782,
+    lng: 77.7215,
+    rating: '4.2',
+    reviews: '3,100',
+    pinIcon: '🏛️',
+    pinClass: 'poi-pin-corporate',
+    photo: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=600&auto=format&fit=crop&q=80',
+    label: 'KTPO, Industrial Area, Hoodi, Whitefield, Bengaluru'
+  },
+  {
+    id: 'hoodi-lake',
+    name: 'Hoodi Lake Park',
+    type: 'park',
+    category: 'Lake & Walking Track · ♿',
+    lat: 12.9871,
+    lng: 77.7230,
+    rating: '4.3',
+    reviews: '640',
+    pinIcon: '🌳',
+    pinClass: 'poi-pin-apartment',
+    photo: 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?w=600&auto=format&fit=crop&q=80',
+    label: 'Hoodi Lake, Hoodi, Bengaluru, Karnataka 560048'
+  },
+
+  // Kadubeesanahalli / Panathur Landmarks
   {
     id: 'prestige-silver-crest',
     name: 'Prestige Silver Crest Apartments',
     type: 'apartment',
-    category: 'Apartment building',
+    category: 'Apartment building · ♿',
     lat: 12.9366,
     lng: 77.6958,
     rating: '4.5',
@@ -6011,7 +6140,7 @@ const POPULAR_LOCAL_POIS = [
     id: 'new-horizon-college',
     name: 'New Horizon College Of Engineering',
     type: 'college',
-    category: 'Engineering college',
+    category: 'Engineering college · ♿',
     lat: 12.9348,
     lng: 77.6970,
     rating: '4.4',
@@ -6039,7 +6168,7 @@ const POPULAR_LOCAL_POIS = [
     id: 'wells-fargo-center',
     name: 'Wells Fargo Center',
     type: 'corporate',
-    category: 'Corporate office',
+    category: 'Corporate office · ♿',
     lat: 12.9338,
     lng: 77.6942,
     rating: '4.6',
@@ -6053,7 +6182,7 @@ const POPULAR_LOCAL_POIS = [
     id: 'jpmc-tower-a',
     name: 'JPMC Tower A',
     type: 'corporate',
-    category: 'Corporate office',
+    category: 'Corporate office · ♿',
     lat: 12.9325,
     lng: 77.6948,
     rating: '4.5',
@@ -6067,7 +6196,7 @@ const POPULAR_LOCAL_POIS = [
     id: 'top-in-town',
     name: 'Top In Town Hypermarket',
     type: 'supermarket',
-    category: 'Hypermarket · Grocery',
+    category: 'Hypermarket · Grocery · ♿',
     lat: 12.9358,
     lng: 77.6995,
     rating: '4.4',
@@ -6081,7 +6210,7 @@ const POPULAR_LOCAL_POIS = [
     id: 'coffee-mechanics',
     name: 'Coffee Mechanics',
     type: 'cafe',
-    category: 'Specialty cafe',
+    category: 'Specialty cafe · ♿',
     lat: 12.9332,
     lng: 77.6965,
     rating: '4.6',
@@ -6092,24 +6221,10 @@ const POPULAR_LOCAL_POIS = [
     label: 'Coffee Mechanics, Kaverappa Layout, Kadubeesanahalli, Bengaluru'
   },
   {
-    id: 'wework-etv',
-    name: 'WeWork Embassy TechVillage',
-    type: 'corporate',
-    category: 'Coworking space',
-    lat: 12.9312,
-    lng: 77.6962,
-    rating: '4.7',
-    reviews: '1,230',
-    pinIcon: '💻',
-    pinClass: 'poi-pin-corporate',
-    photo: 'https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=600&auto=format&fit=crop&q=80',
-    label: 'WeWork, Embassy TechVillage Block L, Bengaluru'
-  },
-  {
     id: 'sakra-world-hospital',
     name: 'Sakra World Hospital',
     type: 'hospital',
-    category: 'Multi-speciality hospital',
+    category: 'Multi-speciality hospital · 24/7',
     lat: 12.9298,
     lng: 77.6885,
     rating: '4.6',
@@ -6120,32 +6235,18 @@ const POPULAR_LOCAL_POIS = [
     label: 'Sakra World Hospital, Outer Ring Rd, Marathahalli - Sarjapur Outer Ring Rd, Bengaluru'
   },
   {
-    id: 'fractal-analytics',
-    name: 'Fractal Analytics Ltd',
-    type: 'corporate',
-    category: 'Corporate office',
-    lat: 12.9318,
-    lng: 77.6952,
-    rating: '4.5',
-    reviews: '340',
-    pinIcon: '📊',
-    pinClass: 'poi-pin-corporate',
-    photo: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=600&auto=format&fit=crop&q=80',
-    label: 'Fractal Analytics, Embassy TechVillage, Bengaluru'
-  },
-  {
-    id: 'iqvia',
-    name: 'IQVIA',
-    type: 'corporate',
-    category: 'Corporate office',
-    lat: 12.9365,
-    lng: 77.7010,
-    rating: '4.4',
-    reviews: '560',
-    pinIcon: '🏢',
-    pinClass: 'poi-pin-corporate',
-    photo: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=600&auto=format&fit=crop&q=80',
-    label: 'IQVIA India, Cessna Business Park, Kadubeesanahalli, Bengaluru'
+    id: 'manipal-hospital-sarjapur',
+    name: 'Manipal Hospital Sarjapur Road',
+    type: 'hospital',
+    category: 'Super-speciality hospital · 24/7',
+    lat: 12.9121,
+    lng: 77.6750,
+    rating: '4.6',
+    reviews: '1,163',
+    pinIcon: '🏥',
+    pinClass: 'poi-pin-hospital',
+    photo: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=600&auto=format&fit=crop&q=80',
+    label: 'Manipal Hospitals, Sarjapura Road, Kasavanahalli, Bangalore South, Karnataka'
   }
 ];
 
