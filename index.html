@@ -3125,119 +3125,74 @@ function selectMeetupFromSearch(r){
 
 
   /* Leaflet Custom POI Pin Markers */
-  .poi-map-pin {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
+  /* ── Native-feel POI hover tooltip (no emoji pins) ── */
+  .poi-native-tooltip.leaflet-tooltip {
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+    padding: 6px 10px;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 200px;
+    white-space: normal;
+  }
+  html.dark .poi-native-tooltip.leaflet-tooltip {
     background: #1E293B;
-    border: 2px solid #FFFFFF;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    cursor: pointer;
-    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-    user-select: none;
+    border-color: rgba(255,255,255,0.15);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
   }
-  .poi-map-pin:hover {
-    transform: scale(1.22);
-    box-shadow: 0 6px 18px rgba(0, 240, 255, 0.7);
-    border-color: #00F0FF;
-    z-index: 1000 !important;
+  .poi-native-tooltip.leaflet-tooltip::before {
+    border-top-color: #fff;
   }
-  .poi-pin-apartment { background: #475569; }
-  .poi-pin-college { background: #92400E; }
-  .poi-pin-corporate { background: #1E40AF; }
-  .poi-pin-supermarket { background: #0284C7; }
-  .poi-pin-cafe { background: #B45309; }
-  .poi-pin-hospital { background: #DC2626; }
-
-  /* Google Maps Style Hover Gist Card (Matches Pic 2) */
-  .leaflet-popup.poi-gist-popup .leaflet-popup-content-wrapper {
-    background: #FFFFFF;
-    color: #1E293B;
-    border-radius: 14px;
-    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
-    padding: 0;
-    overflow: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+  html.dark .poi-native-tooltip.leaflet-tooltip::before {
+    border-top-color: #1E293B;
   }
-  html.dark .leaflet-popup.poi-gist-popup .leaflet-popup-content-wrapper {
-    background: #0F172A;
-    color: #F8FAFC;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75);
-  }
-  .leaflet-popup.poi-gist-popup .leaflet-popup-content {
-    margin: 0;
-    line-height: 1.4;
-    width: 256px !important;
-  }
-  .leaflet-popup.poi-gist-popup .leaflet-popup-tip {
-    background: #FFFFFF;
-  }
-  html.dark .leaflet-popup.poi-gist-popup .leaflet-popup-tip {
-    background: #0F172A;
-  }
-
-  .poi-card-preview {
-    cursor: pointer;
-  }
-  .poi-card-thumb {
-    width: 100%;
-    height: 112px;
-    object-fit: cover;
-    display: block;
-  }
-  .poi-card-body {
-    padding: 10px 12px 12px 12px;
-  }
-  .poi-card-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 4px;
-  }
-  .poi-card-title {
-    font-size: 13.5px;
+  .pnt-name {
+    font-size: 12.5px;
     font-weight: 700;
-    line-height: 1.25;
-    flex: 1;
     color: #0F172A;
+    line-height: 1.3;
   }
-  html.dark .poi-card-title {
+  html.dark .pnt-name {
     color: #F8FAFC;
   }
-  .poi-card-actions {
-    display: flex;
-    gap: 6px;
-    flex-shrink: 0;
+  .pnt-cat {
+    font-size: 10.5px;
+    color: #64748B;
+    font-weight: 500;
   }
-  .poi-mini-btn {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: #E0F2FE;
-    color: #0284C7;
-    border: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    cursor: pointer;
-    transition: transform 0.15s, background 0.15s;
+  html.dark .pnt-cat {
+    color: #94A3B8;
   }
-  html.dark .poi-mini-btn {
-    background: rgba(14, 165, 233, 0.2);
-    color: #38BDF8;
+
+  /* Nearby places loading indicator */
+  .nearby-loading {
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #64748B;
+    font-style: italic;
+    text-align: center;
   }
-  .poi-mini-btn:hover {
-    transform: scale(1.12);
-    background: #0284C7;
-    color: #fff;
+  html.dark .nearby-loading {
+    color: #94A3B8;
   }
+
+  /* Keep old poi-card styles for any legacy use */
+  .poi-card-preview { cursor: pointer; }
+  .poi-card-thumb {
+    width: 100%; height: 112px; object-fit: cover; display: block;
+  }
+  .poi-card-body { padding: 10px 12px 12px 12px; }
+  .poi-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .poi-card-title { font-size: 13.5px; font-weight: 700; line-height: 1.25; flex: 1; color: #0F172A; }
+  html.dark .poi-card-title { color: #F8FAFC; }
+  .poi-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .poi-mini-btn { width: 32px; height: 32px; border-radius: 50%; background: #E0F2FE; color: #0284C7; border: none; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; transition: transform 0.15s, background 0.15s; }
+  html.dark .poi-mini-btn { background: rgba(14,165,233,0.2); color: #38BDF8; }
+  .poi-mini-btn:hover { transform: scale(1.12); background: #0284C7; color: #fff; }
   .poi-card-rating {
     font-size: 11.5px;
     font-weight: 600;
@@ -6252,6 +6207,10 @@ const POPULAR_LOCAL_POIS = [
 
 let poiMarkersLayer = null;
 
+// ─── Native Google Maps–style hover on map POIs ───────────────────────────────
+// Uses invisible circle markers (radius 0) positioned on known POI coords.
+// Mouseover → slim tooltip (name + category); Mouseout → hide; Click → full place card.
+
 function renderMapPois() {
   if (!map) return;
   if (!poiMarkersLayer) {
@@ -6260,141 +6219,177 @@ function renderMapPois() {
     poiMarkersLayer.clearLayers();
   }
 
+  const zoom = map.getZoom();
+  // Only show interactive POI overlays at street zoom (≥13) to avoid clutter
+  if (zoom < 13) return;
+
   POPULAR_LOCAL_POIS.forEach(poi => {
-    const icon = L.divIcon({
-      className: 'custom-poi-marker',
-      html: `<div class="poi-map-pin ${poi.pinClass}" title="${poi.name}">${poi.pinIcon}</div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 14]
-    });
+    // Invisible hit-area circle – no custom icon, no emoji pin
+    const marker = L.circleMarker([poi.lat, poi.lng], {
+      radius: 18,
+      color: 'transparent',
+      fillColor: 'transparent',
+      fillOpacity: 0,
+      opacity: 0,
+      interactive: true
+    }).addTo(poiMarkersLayer);
 
-    const marker = L.marker([poi.lat, poi.lng], { icon }).addTo(poiMarkersLayer);
+    // Slim tooltip shown on hover – just like Google Maps native labels
+    const tooltip = L.tooltip({
+      permanent: false,
+      direction: 'top',
+      offset: [0, -6],
+      className: 'poi-native-tooltip',
+      opacity: 1
+    }).setContent(`<span class="pnt-name">${poi.name}</span><span class="pnt-cat">${poi.category.split('·')[0].trim()}</span>`);
 
-    // Gist Card Popup (Matches Pic 2)
-    const cardHtml = `
-      <div class="poi-card-preview" id="poiCard_${poi.id}">
-        <img src="${poi.photo}" class="poi-card-thumb" alt="${poi.name}">
-        <div class="poi-card-body">
-          <div class="poi-card-head">
-            <div class="poi-card-title">${poi.name}</div>
-            <div class="poi-card-actions">
-              <button class="poi-mini-btn" id="poiDir_${poi.id}" title="Get Directions">🧭</button>
-              <button class="poi-mini-btn" id="poiSave_${poi.id}" title="Save Place">🔖</button>
-            </div>
-          </div>
-          <div class="poi-card-rating">
-            <span>${poi.rating} ★★★★☆</span>
-            <span class="poi-revs">(${poi.reviews})</span>
-          </div>
-          <div class="poi-card-sub">${poi.category} · ♿</div>
-        </div>
-      </div>
-    `;
+    marker.bindTooltip(tooltip);
 
-    const popup = L.popup({
-      className: 'poi-gist-popup',
-      offset: [0, -12],
-      closeButton: false,
-      autoPan: false
-    }).setContent(cardHtml);
+    marker.on('mouseover', () => marker.openTooltip());
+    marker.on('mouseout', () => marker.closeTooltip());
 
-    marker.bindPopup(popup);
-
-    // Laptop: Hover opens gist card!
-    marker.on('mouseover', () => {
-      marker.openPopup();
-      wireGistButtons(poi);
-    });
-
-    // Mobile & Desktop Click: opens gist card or place card
-    marker.on('click', () => {
-      marker.openPopup();
-      wireGistButtons(poi);
+    // Click → full place card (same as after searching a destination)
+    marker.on('click', (e) => {
+      L.DomEvent.stopPropagation(e);
+      marker.closeTooltip();
+      showPlaceCard({
+        lat: poi.lat,
+        lng: poi.lng,
+        name: poi.name,
+        label: poi.label,
+        type: poi.type
+      });
     });
   });
 }
 
-function wireGistButtons(poi) {
-  setTimeout(() => {
-    const card = document.getElementById('poiCard_' + poi.id);
-    if (card) {
-      card.onclick = (e) => {
-        if (e.target.closest('.poi-mini-btn')) return;
-        map.closePopup();
-        showPlaceCard(poi);
-      };
-    }
-    const dirBtn = document.getElementById('poiDir_' + poi.id);
-    if (dirBtn) {
-      dirBtn.onclick = (e) => {
-        e.stopPropagation();
-        map.closePopup();
-        destination = { lat: poi.lat, lng: poi.lng, name: poi.name, label: poi.label, type: poi.type };
-        if (destMarker) map.removeLayer(destMarker);
-        destMarker = L.marker([destination.lat, destination.lng], { icon: destIcon() }).addTo(map);
-        document.getElementById('destSearch').value = poi.name;
-        document.getElementById('sheet').style.display = 'block';
-        document.getElementById('startNavBtn').style.display = 'flex';
-        activeRouteIndex = 0;
-        routeTick();
-        showToast(`🧭 Route to ${poi.name}`);
-      };
-    }
-    const saveBtn = document.getElementById('poiSave_' + poi.id);
-    if (saveBtn) {
-      saveBtn.onclick = (e) => {
-        e.stopPropagation();
-        toggleFavorite(poi);
-        showToast(`★ Saved ${poi.name}`);
-      };
-    }
-  }, 10);
-}
-
-// Render popular nearby places inside the Place Card
-function renderPopularNearby(d) {
+// ─── Nearby places: live Photon query filtered to ≤350m ─────────────────────
+async function renderPopularNearby(d) {
   const venuesEl = document.getElementById('pcVenuesSection');
   if (!venuesEl) return;
 
-  const currentLat = d.lat;
-  const currentLng = d.lng;
+  venuesEl.innerHTML = `<div class="nearby-loading">Finding nearby places…</div>`;
 
-  // Find popular nearby places from our POI list, sorted by distance
-  const nearby = POPULAR_LOCAL_POIS
-    .filter(p => p.name.toLowerCase() !== (d.name || '').toLowerCase())
-    .map(p => ({
-      ...p,
-      distKm: haversineKm(currentLat, currentLng, p.lat, p.lng)
-    }))
-    .sort((a, b) => a.distKm - b.distKm)
-    .slice(0, 5);
+  try {
+    // Query Photon with destination name + coordinates for proximity-ranked results
+    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(d.name || '')}&lat=${d.lat}&lon=${d.lng}&limit=30`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const json = await res.json();
 
-  if (!nearby.length) return;
+    const RADIUS_KM = 0.35; // 350m strict cutoff
 
-  venuesEl.innerHTML = `
-    <div class="nearby-venues-card">
-      <div class="pc-section-title">📍 Popular Nearby Places</div>
-      <div class="nearby-grid">
-        ${nearby.map(p => `
-          <div class="nearby-item" onclick="showPlaceCard(POPULAR_LOCAL_POIS.find(x => x.id === '${p.id}'))">
-            <img src="${p.photo}" class="nearby-thumb" alt="${p.name}">
-            <div class="nearby-info">
-              <div class="nearby-name">${p.name}</div>
-              <div class="nearby-sub">
-                <span>★ ${p.rating}</span>
-                <span>•</span>
-                <span>${p.distKm < 1 ? Math.round(p.distKm * 1000) + ' m away' : p.distKm.toFixed(1) + ' km away'}</span>
+    // Map categories from OSM to friendly labels
+    const friendlyCat = (props) => {
+      const t = (props.type || props.osm_value || props.osm_key || '').toLowerCase();
+      if (t.includes('cafe') || t.includes('coffee')) return '☕ Café';
+      if (t.includes('restaurant') || t.includes('food') || t.includes('eating')) return '🍽️ Restaurant';
+      if (t.includes('fast_food') || t.includes('burger') || t.includes('pizza')) return '🍔 Fast Food';
+      if (t.includes('cinema') || t.includes('theatre') || t.includes('entertainment')) return '🎬 Entertainment';
+      if (t.includes('supermarket') || t.includes('grocery') || t.includes('convenience')) return '🛒 Store';
+      if (t.includes('bakery') || t.includes('pastry')) return '🥐 Bakery';
+      if (t.includes('bar') || t.includes('pub') || t.includes('brewery')) return '🍺 Bar';
+      if (t.includes('mall') || t.includes('shop') || t.includes('clothes') || t.includes('fashion')) return '🛍️ Shop';
+      if (t.includes('pharmacy') || t.includes('chemist')) return '💊 Pharmacy';
+      if (t.includes('bank') || t.includes('atm')) return '🏦 Bank/ATM';
+      if (t.includes('gym') || t.includes('sports') || t.includes('fitness')) return '💪 Gym';
+      if (t.includes('hotel') || t.includes('hostel') || t.includes('lodge')) return '🏨 Hotel';
+      return '📍 Place';
+    };
+
+    // Unsplash photo seed by category
+    const photoFor = (props) => {
+      const t = (props.type || props.osm_value || props.osm_key || '').toLowerCase();
+      if (t.includes('cafe') || t.includes('coffee')) return 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=400&auto=format&fit=crop&q=70';
+      if (t.includes('restaurant') || t.includes('food') || t.includes('eating') || t.includes('fast_food')) return 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&auto=format&fit=crop&q=70';
+      if (t.includes('cinema') || t.includes('theatre')) return 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=400&auto=format&fit=crop&q=70';
+      if (t.includes('supermarket') || t.includes('grocery') || t.includes('mall') || t.includes('shop')) return 'https://images.unsplash.com/photo-1555529771-122b5f766e12?w=400&auto=format&fit=crop&q=70';
+      if (t.includes('bakery')) return 'https://images.unsplash.com/photo-1586985289688-ca3cf47d3e6e?w=400&auto=format&fit=crop&q=70';
+      if (t.includes('bar') || t.includes('pub') || t.includes('brewery')) return 'https://images.unsplash.com/photo-1566417713940-fe7c737a9ef2?w=400&auto=format&fit=crop&q=70';
+      return 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&auto=format&fit=crop&q=70';
+    };
+
+    const nearby = (json.features || [])
+      .map(f => {
+        const props = f.properties;
+        const lat = f.geometry.coordinates[1];
+        const lng = f.geometry.coordinates[0];
+        const distKm = haversineKm(d.lat, d.lng, lat, lng);
+        const name = props.name;
+        return { props, lat, lng, distKm, name };
+      })
+      .filter(p => p.distKm <= RADIUS_KM && p.name && p.name.toLowerCase() !== (d.name || '').toLowerCase())
+      .sort((a, b) => a.distKm - b.distKm)
+      .slice(0, 6);
+
+    if (!nearby.length) {
+      // Fallback: show closest from local POI list if Photon returns nothing near
+      const fallback = POPULAR_LOCAL_POIS
+        .filter(p => p.name.toLowerCase() !== (d.name || '').toLowerCase())
+        .map(p => ({ ...p, distKm: haversineKm(d.lat, d.lng, p.lat, p.lng) }))
+        .sort((a, b) => a.distKm - b.distKm)
+        .slice(0, 4);
+
+      if (!fallback.length) { venuesEl.innerHTML = ''; return; }
+
+      venuesEl.innerHTML = `
+        <div class="nearby-venues-card">
+          <div class="pc-section-title">📍 Nearby Places</div>
+          <div class="nearby-grid">
+            ${fallback.map(p => `
+              <div class="nearby-item" onclick="showPlaceCard({lat:${p.lat},lng:${p.lng},name:'${p.name.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}',label:'${p.label.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}',type:'${p.type}'})">
+                <img src="${p.photo}" class="nearby-thumb" alt="${p.name}">
+                <div class="nearby-info">
+                  <div class="nearby-name">${p.name}</div>
+                  <div class="nearby-sub">
+                    <span>★ ${p.rating}</span>
+                    <span>•</span>
+                    <span>${p.distKm < 1 ? Math.round(p.distKm * 1000) + 'm' : p.distKm.toFixed(1) + 'km'}</span>
+                  </div>
+                </div>
+                <button class="nearby-action-go" onclick="event.stopPropagation();destination={lat:${p.lat},lng:${p.lng},name:'${p.name.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}',label:'${p.label.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}',type:'${p.type}'};closePlaceCard();routeTick();startJourney();">Go 🚀</button>
               </div>
-            </div>
-            <button class="nearby-action-go" onclick="event.stopPropagation(); destination={lat:${p.lat},lng:${p.lng},name:'${p.name.replace(/'/g, "\\'")}',label:'${p.label.replace(/'/g, "\\'")}',type:'${p.type}'}; closePlaceCard(); routeTick(); startJourney();">Go 🚀</button>
+            `).join('')}
           </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
+        </div>`;
+      return;
+    }
+
+    venuesEl.innerHTML = `
+      <div class="nearby-venues-card">
+        <div class="pc-section-title">📍 Nearby Places</div>
+        <div class="nearby-grid">
+          ${nearby.map(p => {
+            const safeName = (p.name || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            const safeLabel = ((p.props.street ? p.name + ', ' + p.props.street : p.name) || p.name).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            const cat = friendlyCat(p.props);
+            const photo = photoFor(p.props);
+            const dist = p.distKm < 1 ? Math.round(p.distKm * 1000) + 'm' : p.distKm.toFixed(1) + 'km';
+            const type = (p.props.osm_value || p.props.osm_key || 'place').replace(/\s+/g,'_');
+            return `
+              <div class="nearby-item" onclick="showPlaceCard({lat:${p.lat},lng:${p.lng},name:'${safeName}',label:'${safeLabel}',type:'${type}'})">
+                <img src="${photo}" class="nearby-thumb" alt="${p.name}">
+                <div class="nearby-info">
+                  <div class="nearby-name">${p.name}</div>
+                  <div class="nearby-sub">
+                    <span>${cat}</span>
+                    <span>•</span>
+                    <span>${dist} away</span>
+                  </div>
+                </div>
+                <button class="nearby-action-go" onclick="event.stopPropagation();destination={lat:${p.lat},lng:${p.lng},name:'${safeName}',label:'${safeLabel}',type:'${type}'};closePlaceCard();routeTick();startJourney();">Go 🚀</button>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+
+  } catch (err) {
+    console.warn('Nearby places fetch failed:', err);
+    venuesEl.innerHTML = '';
+  }
 }
 
 window.addEventListener('DOMContentLoaded', () => { setTimeout(renderMapPois, 800); });
+map && map.on('zoomend', () => renderMapPois());
 </script>
 </body>
 </html>
