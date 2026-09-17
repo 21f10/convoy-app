@@ -3123,6 +3123,213 @@ function selectMeetupFromSearch(r){
   }
   .sheet-content::-webkit-scrollbar { display: none; }
 
+
+  /* Leaflet Custom POI Pin Markers */
+  .poi-map-pin {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #1E293B;
+    border: 2px solid #FFFFFF;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    user-select: none;
+  }
+  .poi-map-pin:hover {
+    transform: scale(1.22);
+    box-shadow: 0 6px 18px rgba(0, 240, 255, 0.7);
+    border-color: #00F0FF;
+    z-index: 1000 !important;
+  }
+  .poi-pin-apartment { background: #475569; }
+  .poi-pin-college { background: #92400E; }
+  .poi-pin-corporate { background: #1E40AF; }
+  .poi-pin-supermarket { background: #0284C7; }
+  .poi-pin-cafe { background: #B45309; }
+  .poi-pin-hospital { background: #DC2626; }
+
+  /* Google Maps Style Hover Gist Card (Matches Pic 2) */
+  .leaflet-popup.poi-gist-popup .leaflet-popup-content-wrapper {
+    background: #FFFFFF;
+    color: #1E293B;
+    border-radius: 14px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+  }
+  html.dark .leaflet-popup.poi-gist-popup .leaflet-popup-content-wrapper {
+    background: #0F172A;
+    color: #F8FAFC;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75);
+  }
+  .leaflet-popup.poi-gist-popup .leaflet-popup-content {
+    margin: 0;
+    line-height: 1.4;
+    width: 256px !important;
+  }
+  .leaflet-popup.poi-gist-popup .leaflet-popup-tip {
+    background: #FFFFFF;
+  }
+  html.dark .leaflet-popup.poi-gist-popup .leaflet-popup-tip {
+    background: #0F172A;
+  }
+
+  .poi-card-preview {
+    cursor: pointer;
+  }
+  .poi-card-thumb {
+    width: 100%;
+    height: 112px;
+    object-fit: cover;
+    display: block;
+  }
+  .poi-card-body {
+    padding: 10px 12px 12px 12px;
+  }
+  .poi-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .poi-card-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    line-height: 1.25;
+    flex: 1;
+    color: #0F172A;
+  }
+  html.dark .poi-card-title {
+    color: #F8FAFC;
+  }
+  .poi-card-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .poi-mini-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #E0F2FE;
+    color: #0284C7;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.15s, background 0.15s;
+  }
+  html.dark .poi-mini-btn {
+    background: rgba(14, 165, 233, 0.2);
+    color: #38BDF8;
+  }
+  .poi-mini-btn:hover {
+    transform: scale(1.12);
+    background: #0284C7;
+    color: #fff;
+  }
+  .poi-card-rating {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #F59E0B;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 3px;
+  }
+  .poi-card-rating .poi-revs {
+    color: #64748B;
+    font-weight: 500;
+    font-size: 10.5px;
+  }
+  html.dark .poi-card-rating .poi-revs {
+    color: #94A3B8;
+  }
+  .poi-card-sub {
+    font-size: 11.5px;
+    color: #64748B;
+    font-weight: 500;
+  }
+  html.dark .poi-card-sub {
+    color: #94A3B8;
+  }
+
+  /* Popular Nearby Section in Place Card */
+  .nearby-venues-card {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .nearby-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .nearby-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    background: var(--card);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .nearby-item:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--accent);
+    transform: translateX(2px);
+  }
+  .nearby-thumb {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .nearby-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .nearby-name {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nearby-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .nearby-action-go {
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
 </style>
 </head>
 <body>
@@ -4069,7 +4276,7 @@ async function reverseGeocode(lat, lng){
   };
 }
 
-async function onMapClick(e){
+function onMapClick(e){
   if(pinMode){
     dropMeetPin(e.latlng.lat, e.latlng.lng);
     pinMode = false;
@@ -4093,19 +4300,9 @@ async function onMapClick(e){
     return;
   }
 
-  // Tapping ANY location / POI on the map (e.g. Top In Town, Coffee Mechanics, any shop):
-  const lat = e.latlng.lat;
-  const lng = e.latlng.lng;
-
-  // Place temporary selection pin at tapped location
-  if(destMarker) map.removeLayer(destMarker);
-  destMarker = L.marker([lat, lng], { icon: destIcon() }).addTo(map);
-
-  showToast('🔍 Inspecting place details…');
-
-  // Reverse geocode to get real venue name and category
-  const place = await reverseGeocode(lat, lng);
-  showPlaceCard(place);
+  // Clicking on blank map closes any open preview card (standard Google Maps behavior)
+  closePlaceCard();
+  map.closePopup();
 }
 
 /* ==========================================================================
@@ -4634,6 +4831,7 @@ function showPlaceCard(d){
 
   // Load Wikipedia details async (lightweight, 2s timeout)
   loadPlaceDetails(d, name);
+  renderPopularNearby(d);
 }
 
 async function loadPlaceDetails(d, name){
@@ -5763,6 +5961,339 @@ function syncTripCodeDisplay(code) {
 }
 
 window.addEventListener('DOMContentLoaded', initSheetResizer);
+</script>
+<script>
+
+function closeRideSummaryModal() {
+  const m = document.getElementById('rideSummaryModal');
+  if (m) m.style.display = 'none';
+}
+
+function wireRideSummaryModal() {
+  const closeX = document.getElementById('summaryModalClose');
+  if (closeX) closeX.onclick = closeRideSummaryModal;
+  const doneBtn = document.getElementById('sumDoneBtn');
+  if (doneBtn) doneBtn.onclick = closeRideSummaryModal;
+  const backdrop = document.getElementById('rideSummaryModal');
+  if (backdrop) {
+    backdrop.onclick = (e) => {
+      if (e.target === backdrop) closeRideSummaryModal();
+    };
+  }
+}
+window.addEventListener('DOMContentLoaded', wireRideSummaryModal);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeRideSummaryModal();
+});
+
+</script>
+<script>
+
+/* ==========================================================================
+   Interactive Landmark POIs with Google Maps Hover Cards (Matches Pic 2)
+   ========================================================================== */
+const POPULAR_LOCAL_POIS = [
+  {
+    id: 'prestige-silver-crest',
+    name: 'Prestige Silver Crest Apartments',
+    type: 'apartment',
+    category: 'Apartment building',
+    lat: 12.9366,
+    lng: 77.6958,
+    rating: '4.5',
+    reviews: '41',
+    pinIcon: '🏢',
+    pinClass: 'poi-pin-apartment',
+    photo: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&auto=format&fit=crop&q=80',
+    label: 'Prestige Silver Crest Apartments, Kadubeesanahalli, Bengaluru, Karnataka 560103'
+  },
+  {
+    id: 'new-horizon-college',
+    name: 'New Horizon College Of Engineering',
+    type: 'college',
+    category: 'Engineering college',
+    lat: 12.9348,
+    lng: 77.6970,
+    rating: '4.4',
+    reviews: '2,840',
+    pinIcon: '🎓',
+    pinClass: 'poi-pin-college',
+    photo: 'https://images.unsplash.com/photo-1562774053-701939374585?w=600&auto=format&fit=crop&q=80',
+    label: 'New Horizon College Of Engineering, Bellandur Main Rd, Kaverappa Layout, Kadubeesanahalli, Bengaluru'
+  },
+  {
+    id: 'new-horizon-hostel',
+    name: 'New Horizon College - Girls Hostel',
+    type: 'college',
+    category: 'Student hostel',
+    lat: 12.9361,
+    lng: 77.6982,
+    rating: '4.2',
+    reviews: '118',
+    pinIcon: '🏠',
+    pinClass: 'poi-pin-college',
+    photo: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?w=600&auto=format&fit=crop&q=80',
+    label: 'New Horizon Girls Hostel, Kadubeesanahalli, Bengaluru'
+  },
+  {
+    id: 'wells-fargo-center',
+    name: 'Wells Fargo Center',
+    type: 'corporate',
+    category: 'Corporate office',
+    lat: 12.9338,
+    lng: 77.6942,
+    rating: '4.6',
+    reviews: '1,420',
+    pinIcon: '💼',
+    pinClass: 'poi-pin-corporate',
+    photo: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=600&auto=format&fit=crop&q=80',
+    label: 'Wells Fargo Center, Embassy TechVillage, Kadubeesanahalli, Bengaluru'
+  },
+  {
+    id: 'jpmc-tower-a',
+    name: 'JPMC Tower A',
+    type: 'corporate',
+    category: 'Corporate office',
+    lat: 12.9325,
+    lng: 77.6948,
+    rating: '4.5',
+    reviews: '890',
+    pinIcon: '🏢',
+    pinClass: 'poi-pin-corporate',
+    photo: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&auto=format&fit=crop&q=80',
+    label: 'JPMorgan Chase Tower A, Embassy TechVillage, Bengaluru'
+  },
+  {
+    id: 'top-in-town',
+    name: 'Top In Town Hypermarket',
+    type: 'supermarket',
+    category: 'Hypermarket · Grocery',
+    lat: 12.9358,
+    lng: 77.6995,
+    rating: '4.4',
+    reviews: '2,150',
+    pinIcon: '🛒',
+    pinClass: 'poi-pin-supermarket',
+    photo: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=600&auto=format&fit=crop&q=80',
+    label: 'Top In Town Hypermarket, Panathur Main Rd, Kadubeesanahalli, Bengaluru'
+  },
+  {
+    id: 'coffee-mechanics',
+    name: 'Coffee Mechanics',
+    type: 'cafe',
+    category: 'Specialty cafe',
+    lat: 12.9332,
+    lng: 77.6965,
+    rating: '4.6',
+    reviews: '1,780',
+    pinIcon: '☕',
+    pinClass: 'poi-pin-cafe',
+    photo: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=600&auto=format&fit=crop&q=80',
+    label: 'Coffee Mechanics, Kaverappa Layout, Kadubeesanahalli, Bengaluru'
+  },
+  {
+    id: 'wework-etv',
+    name: 'WeWork Embassy TechVillage',
+    type: 'corporate',
+    category: 'Coworking space',
+    lat: 12.9312,
+    lng: 77.6962,
+    rating: '4.7',
+    reviews: '1,230',
+    pinIcon: '💻',
+    pinClass: 'poi-pin-corporate',
+    photo: 'https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=600&auto=format&fit=crop&q=80',
+    label: 'WeWork, Embassy TechVillage Block L, Bengaluru'
+  },
+  {
+    id: 'sakra-world-hospital',
+    name: 'Sakra World Hospital',
+    type: 'hospital',
+    category: 'Multi-speciality hospital',
+    lat: 12.9298,
+    lng: 77.6885,
+    rating: '4.6',
+    reviews: '6,450',
+    pinIcon: '🏥',
+    pinClass: 'poi-pin-hospital',
+    photo: 'https://images.unsplash.com/photo-1587351021759-3e566b6af7cc?w=600&auto=format&fit=crop&q=80',
+    label: 'Sakra World Hospital, Outer Ring Rd, Marathahalli - Sarjapur Outer Ring Rd, Bengaluru'
+  },
+  {
+    id: 'fractal-analytics',
+    name: 'Fractal Analytics Ltd',
+    type: 'corporate',
+    category: 'Corporate office',
+    lat: 12.9318,
+    lng: 77.6952,
+    rating: '4.5',
+    reviews: '340',
+    pinIcon: '📊',
+    pinClass: 'poi-pin-corporate',
+    photo: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=600&auto=format&fit=crop&q=80',
+    label: 'Fractal Analytics, Embassy TechVillage, Bengaluru'
+  },
+  {
+    id: 'iqvia',
+    name: 'IQVIA',
+    type: 'corporate',
+    category: 'Corporate office',
+    lat: 12.9365,
+    lng: 77.7010,
+    rating: '4.4',
+    reviews: '560',
+    pinIcon: '🏢',
+    pinClass: 'poi-pin-corporate',
+    photo: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=600&auto=format&fit=crop&q=80',
+    label: 'IQVIA India, Cessna Business Park, Kadubeesanahalli, Bengaluru'
+  }
+];
+
+let poiMarkersLayer = null;
+
+function renderMapPois() {
+  if (!map) return;
+  if (!poiMarkersLayer) {
+    poiMarkersLayer = L.layerGroup().addTo(map);
+  } else {
+    poiMarkersLayer.clearLayers();
+  }
+
+  POPULAR_LOCAL_POIS.forEach(poi => {
+    const icon = L.divIcon({
+      className: 'custom-poi-marker',
+      html: `<div class="poi-map-pin ${poi.pinClass}" title="${poi.name}">${poi.pinIcon}</div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
+    });
+
+    const marker = L.marker([poi.lat, poi.lng], { icon }).addTo(poiMarkersLayer);
+
+    // Gist Card Popup (Matches Pic 2)
+    const cardHtml = `
+      <div class="poi-card-preview" id="poiCard_${poi.id}">
+        <img src="${poi.photo}" class="poi-card-thumb" alt="${poi.name}">
+        <div class="poi-card-body">
+          <div class="poi-card-head">
+            <div class="poi-card-title">${poi.name}</div>
+            <div class="poi-card-actions">
+              <button class="poi-mini-btn" id="poiDir_${poi.id}" title="Get Directions">🧭</button>
+              <button class="poi-mini-btn" id="poiSave_${poi.id}" title="Save Place">🔖</button>
+            </div>
+          </div>
+          <div class="poi-card-rating">
+            <span>${poi.rating} ★★★★☆</span>
+            <span class="poi-revs">(${poi.reviews})</span>
+          </div>
+          <div class="poi-card-sub">${poi.category} · ♿</div>
+        </div>
+      </div>
+    `;
+
+    const popup = L.popup({
+      className: 'poi-gist-popup',
+      offset: [0, -12],
+      closeButton: false,
+      autoPan: false
+    }).setContent(cardHtml);
+
+    marker.bindPopup(popup);
+
+    // Laptop: Hover opens gist card!
+    marker.on('mouseover', () => {
+      marker.openPopup();
+      wireGistButtons(poi);
+    });
+
+    // Mobile & Desktop Click: opens gist card or place card
+    marker.on('click', () => {
+      marker.openPopup();
+      wireGistButtons(poi);
+    });
+  });
+}
+
+function wireGistButtons(poi) {
+  setTimeout(() => {
+    const card = document.getElementById('poiCard_' + poi.id);
+    if (card) {
+      card.onclick = (e) => {
+        if (e.target.closest('.poi-mini-btn')) return;
+        map.closePopup();
+        showPlaceCard(poi);
+      };
+    }
+    const dirBtn = document.getElementById('poiDir_' + poi.id);
+    if (dirBtn) {
+      dirBtn.onclick = (e) => {
+        e.stopPropagation();
+        map.closePopup();
+        destination = { lat: poi.lat, lng: poi.lng, name: poi.name, label: poi.label, type: poi.type };
+        if (destMarker) map.removeLayer(destMarker);
+        destMarker = L.marker([destination.lat, destination.lng], { icon: destIcon() }).addTo(map);
+        document.getElementById('destSearch').value = poi.name;
+        document.getElementById('sheet').style.display = 'block';
+        document.getElementById('startNavBtn').style.display = 'flex';
+        activeRouteIndex = 0;
+        routeTick();
+        showToast(`🧭 Route to ${poi.name}`);
+      };
+    }
+    const saveBtn = document.getElementById('poiSave_' + poi.id);
+    if (saveBtn) {
+      saveBtn.onclick = (e) => {
+        e.stopPropagation();
+        toggleFavorite(poi);
+        showToast(`★ Saved ${poi.name}`);
+      };
+    }
+  }, 10);
+}
+
+// Render popular nearby places inside the Place Card
+function renderPopularNearby(d) {
+  const venuesEl = document.getElementById('pcVenuesSection');
+  if (!venuesEl) return;
+
+  const currentLat = d.lat;
+  const currentLng = d.lng;
+
+  // Find popular nearby places from our POI list, sorted by distance
+  const nearby = POPULAR_LOCAL_POIS
+    .filter(p => p.name.toLowerCase() !== (d.name || '').toLowerCase())
+    .map(p => ({
+      ...p,
+      distKm: haversineKm(currentLat, currentLng, p.lat, p.lng)
+    }))
+    .sort((a, b) => a.distKm - b.distKm)
+    .slice(0, 5);
+
+  if (!nearby.length) return;
+
+  venuesEl.innerHTML = `
+    <div class="nearby-venues-card">
+      <div class="pc-section-title">📍 Popular Nearby Places</div>
+      <div class="nearby-grid">
+        ${nearby.map(p => `
+          <div class="nearby-item" onclick="showPlaceCard(POPULAR_LOCAL_POIS.find(x => x.id === '${p.id}'))">
+            <img src="${p.photo}" class="nearby-thumb" alt="${p.name}">
+            <div class="nearby-info">
+              <div class="nearby-name">${p.name}</div>
+              <div class="nearby-sub">
+                <span>★ ${p.rating}</span>
+                <span>•</span>
+                <span>${p.distKm < 1 ? Math.round(p.distKm * 1000) + ' m away' : p.distKm.toFixed(1) + ' km away'}</span>
+              </div>
+            </div>
+            <button class="nearby-action-go" onclick="event.stopPropagation(); destination={lat:${p.lat},lng:${p.lng},name:'${p.name.replace(/'/g, "\\'")}',label:'${p.label.replace(/'/g, "\\'")}',type:'${p.type}'}; closePlaceCard(); routeTick(); startJourney();">Go 🚀</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+window.addEventListener('DOMContentLoaded', () => { setTimeout(renderMapPois, 800); });
 </script>
 </body>
 </html>
