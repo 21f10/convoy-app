@@ -337,6 +337,49 @@ function toggleVoiceGuidance() {
 const voiceBtnEl = document.getElementById('voiceToggleBtn');
 if(voiceBtnEl) voiceBtnEl.onclick = toggleVoiceGuidance;
 
+let cachedAssistantVoice = null;
+
+function pickNaturalAssistantVoice() {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices || !voices.length) return null;
+
+  // Premium natural female / assistant voices across Chrome, Android, iOS, and Windows
+  const preferred = [
+    'google uk english female',
+    'google us english female',
+    'google uk english',
+    'google us english',
+    'samantha',
+    'karen',
+    'victoria',
+    'serena',
+    'jenny',
+    'aria',
+    'zira',
+    'natural',
+    'female'
+  ];
+
+  for (const name of preferred) {
+    const v = voices.find(voice => voice.name.toLowerCase().includes(name) && voice.lang.startsWith('en'));
+    if (v) return v;
+  }
+
+  // Any English voice marked female
+  const anyFemale = voices.find(v => v.lang.startsWith('en') && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('woman')));
+  if (anyFemale) return anyFemale;
+
+  return voices.find(v => v.lang.startsWith('en')) || voices[0];
+}
+
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = () => {
+    cachedAssistantVoice = pickNaturalAssistantVoice();
+  };
+  cachedAssistantVoice = pickNaturalAssistantVoice();
+}
+
 function speakVoiceAlert(text) {
   if (!voiceGuidanceEnabled || !('speechSynthesis' in window)) return;
   const now = Date.now();
@@ -347,8 +390,16 @@ function speakVoiceAlert(text) {
   try {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.05;
-    utterance.lang = 'en-US';
+    if (!cachedAssistantVoice) cachedAssistantVoice = pickNaturalAssistantVoice();
+    if (cachedAssistantVoice) {
+      utterance.voice = cachedAssistantVoice;
+      utterance.lang = cachedAssistantVoice.lang;
+    } else {
+      utterance.lang = 'en-US';
+    }
+    // Warm, friendly, natural conversational cadence (pitch 1.08, rate 1.01)
+    utterance.pitch = 1.08;
+    utterance.rate = 1.01;
     window.speechSynthesis.speak(utterance);
   } catch(e){}
 }
@@ -2936,6 +2987,142 @@ function selectMeetupFromSearch(r){
     letter-spacing: 0.02em;
   }
 
+
+  /* Decongested Search Bar & Header Actions */
+  .search-island {
+    display: flex;
+    align-items: center;
+    background: var(--panel-glass);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-full);
+    padding: 6px 14px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(24px);
+    margin-bottom: 8px;
+    width: 100%;
+    gap: 8px;
+  }
+  .search-island input {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  @media (max-width: 640px) {
+    .header-actions.desktop-actions {
+      display: none !important;
+    }
+    .search-island {
+      padding: 6px 12px;
+      gap: 6px;
+    }
+  }
+
+  /* Trip Code Chip in Sub-Header Row */
+  .trip-code-chip {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.28), rgba(99, 102, 241, 0.18)) !important;
+    border: 1.5px solid rgba(129, 140, 248, 0.5) !important;
+    color: #C7D2FE !important;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    box-shadow: 0 2px 10px rgba(79, 70, 229, 0.35);
+  }
+  .trip-code-chip:hover {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.45), rgba(99, 102, 241, 0.3)) !important;
+    border-color: #A5B4FC !important;
+    color: #fff !important;
+    transform: translateY(-1px);
+  }
+
+  /* 5-Column Vehicle Modes Selector (No 2nd line wrapping!) */
+  .modes-selector {
+    display: grid !important;
+    grid-template-columns: repeat(5, 1fr) !important;
+    gap: 5px !important;
+    margin-bottom: 10px !important;
+    background: rgba(0, 0, 0, 0.24) !important;
+    padding: 4px !important;
+    border-radius: var(--radius-md) !important;
+    border: 1px solid var(--border) !important;
+  }
+  .mode-pill {
+    padding: 6px 2px !important;
+    border-radius: 9px !important;
+    gap: 2px !important;
+  }
+  .mode-pill .em { font-size: 16px !important; }
+  .mode-pill .label { font-size: 11px !important; font-weight: 700 !important; }
+  .mode-pill .eta { font-size: 10px !important; }
+
+  /* Draggable & Resizable Bottom Sheet */
+  .sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    max-width: 680px;
+    margin: 0 auto;
+    background: var(--panel-glass);
+    border: 1px solid var(--border-strong);
+    border-bottom: none;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(28px);
+    padding: 4px 16px calc(14px + env(safe-area-inset-bottom)) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    transition: height 0.24s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s ease;
+    max-height: 85vh;
+    min-height: 120px;
+    overflow: hidden;
+  }
+  .sheet.dragging {
+    transition: none !important;
+  }
+  .sheet-handle-area {
+    padding: 8px 0 6px 0;
+    margin: 0 -16px 6px -16px;
+    cursor: grab;
+    touch-action: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    user-select: none;
+    background: transparent;
+  }
+  .sheet-handle-area:active { cursor: grabbing; }
+  .sheet-handle-bar {
+    width: 42px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.3);
+    margin: 0 auto 3px;
+    transition: background 0.15s, transform 0.15s;
+  }
+  .sheet-handle-area:hover .sheet-handle-bar,
+  .sheet.dragging .sheet-handle-bar {
+    background: var(--accent-light);
+    transform: scaleX(1.2);
+  }
+  .sheet-drag-hint {
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--text-faint);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+  .sheet-content {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .sheet-content::-webkit-scrollbar { display: none; }
+
 </style>
 </head>
 <body>
@@ -3053,7 +3240,7 @@ function selectMeetupFromSearch(r){
     <input id="destSearch" placeholder="Search destination, apartment, cafe..." autocomplete="off">
     <button class="search-voice-btn" id="voiceSearchBtn" title="Voice Search (Speak Destination)">🎙️</button>
     <button class="search-clear-btn" id="searchClearBtn">✕</button>
-    <div class="header-actions">
+    <div class="header-actions desktop-actions">
       <div class="trip-code-pill" id="codeDisplay" title="Click to share trip code / QR">···</div>
       <div class="icon-btn" id="headerHazardBtn" title="Report Road Hazard / SOS" style="color:#F87171;">⚠️</div>
       <div class="icon-btn" id="placesBtn" title="Saved & Recent Places">★</div>
@@ -3064,6 +3251,7 @@ function selectMeetupFromSearch(r){
   <div class="sub-header-wrapper">
     <button class="sub-scroll-btn sub-scroll-prev" id="subScrollPrev" title="Scroll left">‹</button>
     <div class="sub-header-row" id="subHeaderRow">
+      <div class="cat-chip trip-code-chip" id="codeDisplayMobile" title="Click to share trip code / QR">⚡ <span id="codeMobileText">···</span> 🔗</div>
       <div class="start-pill" id="startPill" title="Tap to choose start point or reset">
         <span class="live-gps-beacon"><span class="beacon-core"></span><span class="beacon-wave"></span></span>
         <span id="startPillText">Start: Live GPS</span>
@@ -3112,8 +3300,12 @@ function selectMeetupFromSearch(r){
 
 <!-- Bottom Mobility Sheet -->
 <div class="sheet" id="sheet" style="display:none;">
-  <div class="sheet-handle-bar"></div>
+  <div class="sheet-handle-area" id="sheetHandleArea" title="Drag up or down to resize, or tap to toggle">
+    <div class="sheet-handle-bar"></div>
+    <div class="sheet-drag-hint" id="sheetDragHint">↕ Drag to resize or tap</div>
+  </div>
 
+  <div class="sheet-content" id="sheetContent">
   <!-- Vehicle Modes Selector -->
   <div class="modes-selector" id="modesRow"></div>
 
@@ -3144,6 +3336,7 @@ function selectMeetupFromSearch(r){
     <button class="action-btn btn-subtle" id="leaveBtn" title="Leave Trip">Leave</button>
   </div>
   <div class="sheet-hint" id="sheetHint">Tap 'Propose Meet-up Pin', then tap anywhere on the map.</div>
+  </div>
 </div>
 
 <!-- Turn-by-Turn Navigation HUD (Active during journey) -->
@@ -3647,6 +3840,7 @@ function enterApp(){
   document.getElementById('sheet').style.display = 'block';
   document.getElementById('fabGroup').style.display = 'flex';
   document.getElementById('codeDisplay').innerHTML = `⚡ <span>${tripCode}</span>`;
+  syncTripCodeDisplay(tripCode);
   buildModesRow();
   requestAnimationFrame(updateFabPosition);
 }
@@ -5427,6 +5621,148 @@ window.addEventListener('DOMContentLoaded', () => {
     if (lm) lm.classList.remove('open');
   };
 });
+</script>
+<script>
+
+/* ==========================================================================
+   Draggable & Resizable Bottom Sheet (Smooth Snap Points & Drag)
+   ========================================================================== */
+let sheetSnapState = 'mid'; // 'peek', 'mid', 'full'
+
+function getSheetSnapHeights() {
+  const vh = window.innerHeight;
+  return {
+    peek: Math.max(130, Math.min(160, Math.round(vh * 0.2))),
+    mid: Math.min(350, Math.round(vh * 0.46)),
+    full: Math.min(Math.round(vh * 0.82), 620)
+  };
+}
+
+function setSheetHeight(h, snapName) {
+  const sheet = document.getElementById('sheet');
+  if (!sheet) return;
+  sheet.style.height = h + 'px';
+  sheetSnapState = snapName || 'custom';
+  const hint = document.getElementById('sheetDragHint');
+  if (hint) {
+    if (sheetSnapState === 'peek') hint.innerHTML = '▲ Drag up for route details';
+    else if (sheetSnapState === 'full') hint.innerHTML = '▼ Drag down to see map';
+    else hint.innerHTML = '↕ Drag to resize or tap';
+  }
+}
+
+function initSheetResizer() {
+  const sheet = document.getElementById('sheet');
+  const handle = document.getElementById('sheetHandleArea');
+  if (!sheet || !handle) return;
+
+  let startY = 0;
+  let startH = 0;
+  let isDragging = false;
+  let moved = false;
+
+  // Set initial comfortable height
+  const snaps = getSheetSnapHeights();
+  setSheetHeight(snaps.mid, 'mid');
+
+  // Touch handlers
+  handle.addEventListener('touchstart', (e) => {
+    isDragging = true;
+    moved = false;
+    startY = e.touches[0].clientY;
+    startH = sheet.offsetHeight;
+    sheet.classList.add('dragging');
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (e) => {
+    if (!isDragging) return;
+    const deltaY = startY - e.touches[0].clientY;
+    if (Math.abs(deltaY) > 4) moved = true;
+    const snaps = getSheetSnapHeights();
+    const newH = Math.max(snaps.peek - 20, Math.min(snaps.full + 30, startH + deltaY));
+    sheet.style.height = newH + 'px';
+  }, { passive: true });
+
+  window.addEventListener('touchend', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    sheet.classList.remove('dragging');
+    const curH = sheet.offsetHeight;
+    const snaps = getSheetSnapHeights();
+
+    if (curH < (snaps.peek + snaps.mid) / 2) {
+      setSheetHeight(snaps.peek, 'peek');
+    } else if (curH < (snaps.mid + snaps.full) / 2) {
+      setSheetHeight(snaps.mid, 'mid');
+    } else {
+      setSheetHeight(snaps.full, 'full');
+    }
+  });
+
+  // Mouse handlers for laptop
+  handle.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    moved = false;
+    startY = e.clientY;
+    startH = sheet.offsetHeight;
+    sheet.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const deltaY = startY - e.clientY;
+    if (Math.abs(deltaY) > 4) moved = true;
+    const snaps = getSheetSnapHeights();
+    const newH = Math.max(snaps.peek - 20, Math.min(snaps.full + 30, startH + deltaY));
+    sheet.style.height = newH + 'px';
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    sheet.classList.remove('dragging');
+    const curH = sheet.offsetHeight;
+    const snaps = getSheetSnapHeights();
+
+    if (curH < (snaps.peek + snaps.mid) / 2) {
+      setSheetHeight(snaps.peek, 'peek');
+    } else if (curH < (snaps.mid + snaps.full) / 2) {
+      setSheetHeight(snaps.mid, 'mid');
+    } else {
+      setSheetHeight(snaps.full, 'full');
+    }
+  });
+
+  // Tap/Click to cycle states
+  handle.addEventListener('click', () => {
+    if (moved) return;
+    const snaps = getSheetSnapHeights();
+    if (sheetSnapState === 'peek') {
+      setSheetHeight(snaps.mid, 'mid');
+    } else if (sheetSnapState === 'mid') {
+      setSheetHeight(snaps.peek, 'peek');
+    } else {
+      setSheetHeight(snaps.mid, 'mid');
+    }
+  });
+}
+
+// Keep journey code in sync across mobile chip & desktop pill
+function syncTripCodeDisplay(code) {
+  const dt = document.getElementById('codeDisplay');
+  if (dt) dt.innerHTML = `⚡ <span>${code}</span>`;
+  const mb = document.getElementById('codeMobileText');
+  if (mb) mb.textContent = code;
+  const chip = document.getElementById('codeDisplayMobile');
+  if (chip) {
+    chip.onclick = () => {
+      openTripQrModal(code);
+    };
+  }
+}
+
+window.addEventListener('DOMContentLoaded', initSheetResizer);
 </script>
 </body>
 </html>
