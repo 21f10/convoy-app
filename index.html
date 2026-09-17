@@ -558,6 +558,78 @@ if(sumShareBtn){
   };
 }
 
+
+/* ==========================================================================
+   Sub-Header Horizontal Scroll & Chevron Controls
+   ========================================================================== */
+(function initSubHeaderScroll() {
+  const row = document.getElementById('subHeaderRow');
+  const prevBtn = document.getElementById('subScrollPrev');
+  const nextBtn = document.getElementById('subScrollNext');
+
+  function updateScrollChevrons() {
+    if (!row || !prevBtn || !nextBtn) return;
+    const canLeft = row.scrollLeft > 6;
+    const canRight = row.scrollLeft < (row.scrollWidth - row.clientWidth - 8);
+    prevBtn.classList.toggle('visible', canLeft);
+    nextBtn.classList.toggle('visible', canRight);
+  }
+
+  if (row) {
+    row.addEventListener('scroll', updateScrollChevrons, { passive: true });
+    
+    // Mouse wheel horizontal scroll
+    row.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        row.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+
+    // Drag-to-scroll on desktop
+    let isDown = false, startX, scrollLeft;
+    row.addEventListener('mousedown', (e) => {
+      isDown = true;
+      startX = e.pageX - row.offsetLeft;
+      scrollLeft = row.scrollLeft;
+    });
+    window.addEventListener('mouseup', () => { isDown = false; });
+    row.addEventListener('mousemove', (e) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - row.offsetLeft;
+      row.scrollLeft = scrollLeft - (x - startX) * 1.5;
+    });
+  }
+
+  if (prevBtn) {
+    prevBtn.onclick = () => { row.scrollBy({ left: -160, behavior: 'smooth' }); };
+  }
+  if (nextBtn) {
+    nextBtn.onclick = () => { row.scrollBy({ left: 160, behavior: 'smooth' }); };
+  }
+
+  setTimeout(updateScrollChevrons, 600);
+  window.addEventListener('resize', updateScrollChevrons);
+})();
+
+/* Screen WakeLock API to keep display on during navigation */
+let navWakeLock = null;
+async function requestNavWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      navWakeLock = await navigator.wakeLock.request('screen');
+      console.log('[Convoy] Screen wakeLock active');
+    }
+  } catch(e){}
+}
+function releaseNavWakeLock() {
+  if (navWakeLock) {
+    try { navWakeLock.release(); } catch(e){}
+    navWakeLock = null;
+  }
+}
+
 </script>
 <style>
   :root {
@@ -1080,30 +1152,76 @@ if(sumShareBtn){
   .trip-code-pill:hover { background: rgba(79, 70, 229, 0.3); color: #fff; }
   .trip-code-pill i { font-style: normal; font-size: 10px; opacity: 0.8; }
 
-  /* Sub Header: Start Point & Category Chips */
+  /* Sub Header: Start Point & Category Chips Wrapper */
+  .sub-header-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
   .sub-header-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     overflow-x: auto;
     scrollbar-width: none;
-    padding: 2px 2px 4px;
+    -ms-overflow-style: none;
+    padding: 3px 30px 5px 4px;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
   }
   .sub-header-row::-webkit-scrollbar { display: none; }
+
+  /* Floating Scroll Chevrons for Desktop & Mobile */
+  .sub-scroll-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--panel-glass);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+    backdrop-filter: blur(16px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, background 0.15s, transform 0.15s;
+  }
+  .sub-scroll-btn:hover {
+    background: var(--card);
+    color: var(--accent-light);
+    transform: translateY(-50%) scale(1.1);
+  }
+  .sub-scroll-btn.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .sub-scroll-prev { left: -6px; }
+  .sub-scroll-next { right: -6px; }
 
   .start-pill {
     background: var(--panel-glass);
     border: 1px solid var(--border);
     border-radius: var(--radius-full);
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 5px 11px;
+    font-size: 11.5px;
     font-weight: 600;
     color: var(--text-muted);
     box-shadow: var(--shadow-sm);
     backdrop-filter: blur(16px);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
@@ -1118,9 +1236,9 @@ if(sumShareBtn){
     background: none;
     border: none;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 11px;
     cursor: pointer;
-    padding: 0 0 0 4px;
+    padding: 0 0 0 3px;
     display: none;
   }
   .start-pill.custom button.clear-start-btn { display: inline; color: var(--accent-light); }
@@ -1129,8 +1247,8 @@ if(sumShareBtn){
     background: var(--panel-glass);
     border: 1px solid var(--border);
     border-radius: var(--radius-full);
-    padding: 6px 11px;
-    font-size: 12px;
+    padding: 5px 10px;
+    font-size: 11.5px;
     font-weight: 600;
     color: var(--text-muted);
     box-shadow: var(--shadow-sm);
@@ -1140,7 +1258,7 @@ if(sumShareBtn){
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     transition: all 0.15s ease;
   }
   .cat-chip:hover {
@@ -2570,17 +2688,21 @@ if(sumShareBtn){
     </div>
   </div>
 
-  <div class="sub-header-row">
-    <div class="start-pill" id="startPill">
-      <span>📍 Start: Live Location</span>
-      <button class="clear-start-btn" id="startClearBtn" title="Reset to live GPS">✕</button>
+  <div class="sub-header-wrapper">
+    <button class="sub-scroll-btn sub-scroll-prev" id="subScrollPrev" title="Scroll left">‹</button>
+    <div class="sub-header-row" id="subHeaderRow">
+      <div class="start-pill" id="startPill">
+        <span>📍 Start: Live Location</span>
+        <button class="clear-start-btn" id="startClearBtn" title="Reset to live GPS">✕</button>
+      </div>
+      <div class="cat-chip chip-paste" id="pasteLinkChip" title="Paste Google Maps or Apple Maps Link">📋 Paste Link</div>
+      <div class="cat-chip" data-cat="cafe">☕ Cafes</div>
+      <div class="cat-chip" data-cat="fuel">⛽ Fuel / EV</div>
+      <div class="cat-chip" data-cat="food">🍔 Food</div>
+      <div class="cat-chip" data-cat="metro">🚇 Metro</div>
+      <div class="cat-chip" data-cat="hospital">🏥 Hospital</div>
     </div>
-    <div class="cat-chip chip-paste" id="pasteLinkChip" title="Paste Google Maps or Apple Maps Link">📋 Paste Link</div>
-    <div class="cat-chip" data-cat="cafe">☕ Cafes</div>
-    <div class="cat-chip" data-cat="fuel">⛽ Fuel / EV</div>
-    <div class="cat-chip" data-cat="food">🍔 Food</div>
-    <div class="cat-chip" data-cat="metro">🚇 Metro</div>
-    <div class="cat-chip" data-cat="hospital">🏥 Hospital</div>
+    <button class="sub-scroll-btn sub-scroll-next" id="subScrollNext" title="Scroll right">›</button>
   </div>
 </header>
 
@@ -4697,6 +4819,7 @@ function startJourney(){
   navStepIndex = 0;
   navMode = true;
   startRideTracking();
+  requestNavWakeLock();
 
   document.getElementById('topHeader').style.display = 'none';
   document.getElementById('searchDropdown').style.display = 'none';
@@ -4720,6 +4843,7 @@ function endJourney(){
   document.getElementById('sheet').style.display = 'block';
   requestAnimationFrame(updateFabPosition);
   if(myPos) map.setView([myPos.lat, myPos.lng], 15);
+  releaseNavWakeLock();
   showRideSummaryModal();
 }
 
