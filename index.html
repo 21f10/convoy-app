@@ -473,13 +473,21 @@ function toggleCompassMode() {
 const compassFabEl = document.getElementById('compassFab');
 if(compassFabEl) compassFabEl.onclick = toggleCompassMode;
 
+let _lastMapHeading = 0;
 function rotateMapToHeading(heading) {
   if (!headUpMode || heading == null) return;
+  // Only rotate if actually moving (>8 km/h) to avoid glitch when stationary
+  const currentSpeedKmh = myGpsSpeed != null ? myGpsSpeed * 3.6 : 0;
+  if (currentSpeedKmh < 4) return;
+  // Smooth small heading changes — only update if heading changed >3 degrees
+  const delta = Math.abs(heading - _lastMapHeading);
+  if (delta < 3 && delta < 357) return;
+  _lastMapHeading = heading;
   const pane = document.querySelector('#map .leaflet-map-pane');
   if (pane) {
     pane.style.transformOrigin = '50% 50%';
     pane.style.transform = `rotate(-${heading}deg)`;
-    pane.style.transition = 'transform 0.3s ease-out';
+    pane.style.transition = 'transform 0.5s ease-out';
   }
 }
 
@@ -3619,8 +3627,8 @@ function selectMeetupFromSearch(r){
 
 
 <!-- Re-centre pill (shown during nav when user pans away) -->
-<div id="recentreBtn" onclick="recentreOnMe()" style="display:none;position:fixed;bottom:175px;left:50%;transform:translateX(-50%);z-index:500;background:rgba(15,23,42,0.92);border:1.5px solid rgba(99,102,241,0.5);border-radius:24px;padding:10px 20px;display:none;align-items:center;gap:8px;font-size:13.5px;font-weight:700;color:#fff;cursor:pointer;box-shadow:0 4px 20px rgba(0,0,0,0.5);backdrop-filter:blur(12px);transition:opacity 0.2s;">
-  <span style="font-size:16px;">▲</span> Re-centre
+<div id="recentreBtn" onclick="recentreOnMe()" style="display:none;position:fixed;bottom:200px;left:50%;transform:translateX(-50%);z-index:2000;background:rgba(15,23,42,0.94);border:1.5px solid rgba(99,102,241,0.6);border-radius:24px;padding:11px 22px;align-items:center;gap:9px;font-size:13.5px;font-weight:700;color:#fff;cursor:pointer;box-shadow:0 6px 24px rgba(0,0,0,0.55);backdrop-filter:blur(14px);white-space:nowrap;">
+  <span style="font-size:15px;">▲</span> Re-centre
 </div>
 
 <!-- Hazard / SOS Flare Picker Modal -->
@@ -5397,13 +5405,17 @@ function renderRidersRow(){
     const card = document.createElement('div');
     card.className = 'rider-card';
     card.style.setProperty('--rider-color', d.color);
-    // ETA to destination (if destination is set)
+    // ETA to destination (if destination is set and rider has valid coords)
     let etaStr = '';
-    if (destination && d.lat && d.lng) {
+    if (destination && d.lat && d.lng && Math.abs(d.lat) > 0.01 && Math.abs(d.lng) > 0.01) {
       const dKm = haversineKm(d.lat, d.lng, destination.lat, destination.lng);
-      const speedKmh = d.speed ? d.speed * 3.6 : 30; // fallback 30 km/h
-      const etaMins = Math.round((dKm / Math.max(speedKmh, 5)) * 60);
-      etaStr = dKm < 0.05 ? '✅ Arrived' : etaMins + ' min away';
+      // Use GPS speed only if > 5 km/h (m/s * 3.6), else use mode-based estimate
+      const rawKmh = (d.speed != null && d.speed * 3.6 > 5) ? d.speed * 3.6 : 25;
+      const etaMins = Math.round((dKm / rawKmh) * 60);
+      if (dKm < 0.05) etaStr = '✅ Arrived';
+      else if (dKm < 1) etaStr = Math.round(dKm * 1000) + 'm to go';
+      else if (etaMins < 180) etaStr = etaMins + ' min away';
+      else etaStr = dKm.toFixed(1) + 'km to go';
     }
     card.innerHTML = `
       <div class="rider-top">
@@ -5960,10 +5972,26 @@ function onNavPositionUpdate(){
 
   const target = currentTarget();
   if(target){
-    const distKm = haversineKm(myPos.lat, myPos.lng, target.lat, target.lng);
+    // Use road-distance from routing if available, else haversine fallback
+    let distKm;
+    if (lastRoutes[activeRouteIndex] && navSteps.length) {
+      // Remaining steps distance
+      let remM = 0;
+      for (let si = navStepIndex; si < navSteps.length; si++) {
+        remM += navSteps[si].distance || 0;
+      }
+      distKm = remM > 0 ? remM / 1000 : haversineKm(myPos.lat, myPos.lng, target.lat, target.lng);
+    } else {
+      distKm = haversineKm(myPos.lat, myPos.lng, target.lat, target.lng);
+    }
     document.getElementById('navDist').textContent = (distKm < 1 ? Math.round(distKm * 1000) + ' m' : distKm.toFixed(1) + ' km') + ' left';
+    // ETA: remaining distance / current speed or route duration estimate
     if(lastRoutes[activeRouteIndex]){
-      document.getElementById('navEta').textContent = Math.round(lastRoutes[activeRouteIndex].duration / 60) + ' min';
+      const speedKmh = myGpsSpeed != null && myGpsSpeed * 3.6 > 5 ? myGpsSpeed * 3.6 : null;
+      const etaMins = speedKmh
+        ? Math.round((distKm / speedKmh) * 60)
+        : Math.round(lastRoutes[activeRouteIndex].duration / 60 * (distKm / (lastRoutes[activeRouteIndex].distance / 1000)));
+      document.getElementById('navEta').textContent = etaMins + ' min';
     }
   }
 }
