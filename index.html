@@ -911,7 +911,7 @@ function selectMeetupFromSearch(r){
     
     --speed-fast: #10B981;
     --speed-med: #F59E0B;
-    --speed-slow: #EF4444;
+    --speed-slow: #EF4444; --speed-slow-ORIG: #EF4444;
     
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
     --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.38);
@@ -2412,7 +2412,11 @@ function selectMeetupFromSearch(r){
     z-index: 90;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+  }
+  @media (max-width: 480px) {
+    .fab-group { right: 10px; top: 110px; gap: 11px; }
+    .fab-btn { width: 42px; height: 42px; font-size: 17px; }
   }
   .fab-btn {
     width: 44px;
@@ -3561,7 +3565,7 @@ function selectMeetupFromSearch(r){
     <span><i style="background:var(--speed-fast)"></i> Fast flow</span>
     <span><i style="background:var(--speed-med)"></i> Moderate</span>
     <span><i style="background:var(--speed-slow)"></i> Congested</span>
-    <span style="margin-left:auto; opacity:0.65;">(Road annotation speed)</span>
+    <span style="margin-left:auto; opacity:0.65;">🔴 Congested  🟠 Slow  🔵 Moving  🩵 Free</span>
   </div>
 
   <!-- Convoy Riders Row -->
@@ -3613,6 +3617,11 @@ function selectMeetupFromSearch(r){
   </div>
 </div>
 
+
+<!-- Re-centre pill (shown during nav when user pans away) -->
+<div id="recentreBtn" onclick="recentreOnMe()" style="display:none;position:fixed;bottom:175px;left:50%;transform:translateX(-50%);z-index:500;background:rgba(15,23,42,0.92);border:1.5px solid rgba(99,102,241,0.5);border-radius:24px;padding:10px 20px;display:none;align-items:center;gap:8px;font-size:13.5px;font-weight:700;color:#fff;cursor:pointer;box-shadow:0 4px 20px rgba(0,0,0,0.5);backdrop-filter:blur(12px);transition:opacity 0.2s;">
+  <span style="font-size:16px;">▲</span> Re-centre
+</div>
 
 <!-- Hazard / SOS Flare Picker Modal -->
 <div id="hazardModal" class="modal-backdrop" style="display:none;">
@@ -5477,7 +5486,7 @@ async function fetchAlternatives(fromLat, fromLng, toLat, toLng){
         const altMidLng = (fromLng + toLng) / 2 + (-dLat / len) * offsetScale;
         const altMidLat = (fromLat + toLat) / 2 + (dLng / len) * offsetScale;
 
-        const altUrl = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${fromLng},${fromLat};${altMidLng.toFixed(5)},${altMidLat.toFixed(5)};${toLng},${toLat}?overview=full&geometries=geojson&steps=true`;
+        const altUrl = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${fromLng},${fromLat};${altMidLng.toFixed(5)},${altMidLat.toFixed(5)};${toLng},${toLat}?overview=full&geometries=geojson&steps=true&annotations=speed&annotations=speed`;
         const altRes = await fetch(altUrl, { signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(3500) : undefined });
         if (altRes.ok) {
           const altData = await altRes.json();
@@ -5554,9 +5563,11 @@ async function fetchAlternatives(fromLat, fromLng, toLat, toLng){
 }
 
 function speedColor(kmh){
-  if(kmh < 22) return getComputedStyle(document.documentElement).getPropertyValue('--speed-slow').trim();
-  if(kmh < 45) return getComputedStyle(document.documentElement).getPropertyValue('--speed-med').trim();
-  return getComputedStyle(document.documentElement).getPropertyValue('--speed-fast').trim();
+  // Traffic colors: Red=congested, Orange=slow, Blue=free flow (matches user request)
+  if(kmh < 15) return '#EF4444';   // 🔴 Heavy traffic
+  if(kmh < 30) return '#F97316';   // 🟠 Slow / moderate
+  if(kmh < 50) return '#3B82F6';   // 🔵 Moving well
+  return '#22D3EE';                 // 🩵 Free flow / highway
 }
 
 function drawSpeedColoredRoute(route){
@@ -5564,11 +5575,28 @@ function drawSpeedColoredRoute(route){
   speedSegments = [];
   const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
 
-  // High-visibility electric cyan / neon navigation road styling during active journey
+  // During active navigation: draw with traffic speed colors (red/orange/blue)
   if(navMode){
-    // Dark outer casing
+    const ann = route.legs.flatMap(leg => (leg.annotation && leg.annotation.speed) ? leg.annotation.speed : []);
+    if(ann.length && ann.length >= coords.length - 1){
+      // Draw dark outer casing first
+      speedSegments.push(L.polyline(coords, { color:'#0F172A', weight:10, opacity:0.85 }).addTo(map));
+      // Draw traffic-colored inner segments
+      let bucketStart = 0;
+      let currentColor = speedColor(ann[0] * 3.6);
+      for(let i = 1; i < ann.length; i++){
+        const col = speedColor(ann[i] * 3.6);
+        if(col !== currentColor){
+          speedSegments.push(L.polyline(coords.slice(bucketStart, i + 1), { color: currentColor, weight: 5.5, opacity: 1 }).addTo(map));
+          bucketStart = i;
+          currentColor = col;
+        }
+      }
+      speedSegments.push(L.polyline(coords.slice(bucketStart), { color: currentColor, weight: 5.5, opacity: 1 }).addTo(map));
+      return;
+    }
+    // Fallback: no annotation data → solid electric cyan
     speedSegments.push(L.polyline(coords, { color:'#0F172A', weight:9, opacity:0.95 }).addTo(map));
-    // Vibrant electric cyan inner road
     speedSegments.push(L.polyline(coords, { color:'#00F0FF', weight:5.5, opacity:1 }).addTo(map));
     return;
   }
@@ -5791,6 +5819,19 @@ function startJourney(){
   document.getElementById('navBanner').style.display = 'block';
   document.getElementById('navBottom').style.display = 'block';
 
+  // Auto-enable head-up mode for navigation (direction of travel = up)
+  if (!headUpMode) {
+    headUpMode = true;
+    const fab = document.getElementById('compassFab');
+    if (fab) { fab.classList.add('active'); fab.innerHTML = '🏎️'; fab.title = 'Head-Up Mode (Active)'; }
+  }
+  // Init re-centre listener
+  initNavRecentre();
+  // Hide re-centre pill initially
+  const rcBtn = document.getElementById('recentreBtn');
+  if (rcBtn) rcBtn.style.display = 'none';
+  window._navPanAway = false;
+
   if(myPos) map.setView([myPos.lat, myPos.lng], 17);
   updateNavBanner();
   requestAnimationFrame(updateFabPosition);
@@ -5813,8 +5854,17 @@ function startJourney(){
 
 function endJourney(){
   navMode = false;
+  window._navPanAway = false;
   document.getElementById('navBanner').style.display = 'none';
   document.getElementById('navBottom').style.display = 'none';
+  const rcBtn = document.getElementById('recentreBtn');
+  if (rcBtn) rcBtn.style.display = 'none';
+  // Restore north-up map
+  headUpMode = false;
+  const compassFab = document.getElementById('compassFab');
+  if (compassFab) { compassFab.classList.remove('active'); compassFab.innerHTML = '🧭'; compassFab.title = 'Toggle Head-Up Mode'; }
+  const pane = document.querySelector('#map .leaflet-map-pane');
+  if (pane) { pane.style.transform = ''; }
   document.getElementById('topHeader').style.display = 'flex';
   document.getElementById('sheet').style.display = 'block';
   requestAnimationFrame(updateFabPosition);
@@ -5846,7 +5896,9 @@ function updateNavBanner(){
 
 function onNavPositionUpdate(){
   if(!navMode || !myPos) return;
-  map.setView([myPos.lat, myPos.lng], map.getZoom());
+  if(!window._navPanAway){
+    map.setView([myPos.lat, myPos.lng], map.getZoom());
+  }
 
   const kmh = myGpsSpeed != null ? myGpsSpeed * 3.6 : 0;
   const roundedKmh = Math.max(0, Math.round(kmh));
