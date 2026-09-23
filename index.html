@@ -516,7 +516,8 @@ let rideStats = {
   lastPos: null,
   topSpeedKmh: 0,
   speedSamples: [],
-  riders: new Set()
+  riders: new Set(),
+  path: []   // [{ lat, lng, ts }] for Convoy Replay
 };
 
 function startRideTracking() {
@@ -527,7 +528,8 @@ function startRideTracking() {
     lastPos: myPos ? { lat: myPos.lat, lng: myPos.lng } : null,
     topSpeedKmh: 0,
     speedSamples: [],
-    riders: new Set([profile?.name || 'Rider'])
+    riders: new Set([profile?.name || 'Rider']),
+    path: myPos ? [{ lat: myPos.lat, lng: myPos.lng, ts: Date.now() }] : []
   };
 }
 
@@ -542,6 +544,7 @@ function trackRidePosition(pos) {
     if (dKm > 0.005 && dKm < 0.8) {
       rideStats.totalDistanceMeters += dKm * 1000;
       rideStats.lastPos = { lat: pos.lat, lng: pos.lng };
+      rideStats.path.push({ lat: pos.lat, lng: pos.lng, ts: Date.now() });
     }
   } else {
     rideStats.lastPos = { lat: pos.lat, lng: pos.lng };
@@ -592,7 +595,19 @@ if(sumCloseBtn) sumCloseBtn.onclick = closeRideSummaryModal;
 const sumDoneBtn = document.getElementById('sumDoneBtn');
 if(sumDoneBtn) sumDoneBtn.onclick = closeRideSummaryModal;
 
-const sumShareBtn = document.getElementById('sumShareBtn');
+
+  // Show Replay button if path was recorded
+  const sumReplaySection = document.getElementById('sumReplaySection');
+  const sumReplayBtn = document.getElementById('sumReplayBtn');
+  if (sumReplaySection && rideStats.path && rideStats.path.length > 5) {
+    sumReplaySection.style.display = 'block';
+    if (sumReplayBtn) sumReplayBtn.onclick = () => {
+      closeRideSummaryModal();
+      startConvoyReplay(rideStats.path.slice());
+    };
+  }
+
+  const sumShareBtn = document.getElementById('sumShareBtn');
 if(sumShareBtn){
   sumShareBtn.onclick = () => {
     const dist = document.getElementById('sumDist').textContent;
@@ -3327,6 +3342,24 @@ function selectMeetupFromSearch(r){
     flex-shrink: 0;
   }
 
+
+  /* Rider ETA badge in riders row */
+  .rider-eta {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #34D399;
+    background: rgba(52, 211, 153, 0.12);
+    border-radius: 5px;
+    padding: 2px 6px;
+    margin-top: 3px;
+    display: inline-block;
+  }
+
+  /* SOS pulse animation */
+  @keyframes sosPulse {
+    from { box-shadow: 0 0 0 0 rgba(220,38,38,0.6); }
+    to   { box-shadow: 0 0 0 10px rgba(220,38,38,0); }
+  }
 </style>
 </head>
 <body>
@@ -3491,6 +3524,7 @@ function selectMeetupFromSearch(r){
   <button class="fab-btn" id="radarFab" title="Toggle Live Rain / Storm Radar">🌧️</button>
   <button class="fab-btn" id="compassFab" title="Toggle Head-Up / North-Up Mode">🧭</button>
   <button class="fab-btn" id="recenterBtn" title="Center Live Location">🎯</button>
+  <button class="fab-btn" id="themeFab" title="Toggle Dark/Light Map" style="font-size:17px;">🌓</button>
 </div>
 
 <!-- Map Layer Selector Menu -->
@@ -3575,6 +3609,7 @@ function selectMeetupFromSearch(r){
     <button class="action-btn btn-meet" id="navMeetBtn">📍 Meet Here</button>
     <button class="action-btn btn-hazard" id="navHazardBtn" style="background:rgba(239,68,68,0.18);border:1px solid rgba(239,68,68,0.4);color:#FCA5A5;">⚠️ Hazard</button>
     <button class="action-btn btn-subtle" id="navEndBtn" style="flex:1;">End Journey</button>
+    <button class="action-btn" id="navSosBtn" title="Send SOS to convoy" style="background:rgba(220,38,38,0.85);border:1px solid #EF4444;color:#fff;font-weight:800;letter-spacing:0.04em;padding:0 14px;min-width:52px;">SOS</button>
   </div>
 </div>
 
@@ -3644,7 +3679,10 @@ function selectMeetupFromSearch(r){
       <div class="sum-riders-list" id="sumRidersList"></div>
     </div>
 
-    <div style="display:flex;gap:10px;margin-top:16px;">
+    <div id="sumReplaySection" style="display:none;margin-top:12px;">
+      <button class="primary-btn" id="sumReplayBtn" style="width:100%;padding:11px;font-size:13px;font-weight:700;background:linear-gradient(135deg,#7C3AED,#4F46E5);">▶️ Replay Route</button>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:10px;">
       <button class="primary-btn" id="sumShareBtn" style="flex:1;padding:12px;font-size:13px;font-weight:700;">📤 Share Ride</button>
       <button class="action-btn btn-subtle" id="sumDoneBtn" style="padding:12px 18px;font-size:13px;font-weight:600;">Close</button>
     </div>
@@ -5191,10 +5229,29 @@ function handleIncomingSync(topic, msg){
       lat: msg.lat,
       lng: msg.lng,
       heading: msg.heading || 0,
+      speed: msg.speed || null,
       ts: msg.ts || Date.now()
     };
     renderRider(msg.senderId, knownRiders[msg.senderId]);
     renderRidersRow();
+  }
+
+  // SOS / Panic alert
+  if (topic.includes('/sos/')) {
+    if (msg.lat && msg.lng) {
+      // Show SOS pin on map
+      const sosIcon = L.divIcon({
+        className: '',
+        html: '<div style="background:#DC2626;color:#fff;font-weight:900;font-size:11px;padding:4px 7px;border-radius:6px;border:2px solid #fff;box-shadow:0 0 0 3px rgba(220,38,38,0.4),0 4px 12px rgba(0,0,0,0.5);white-space:nowrap;animation:sosPulse 1s infinite;">🚨 SOS</div>',
+        iconSize: [60, 28], iconAnchor: [30, 14]
+      });
+      const sosMarker = L.marker([msg.lat, msg.lng], { icon: sosIcon, zIndexOffset: 9999 }).addTo(map);
+      setTimeout(() => { try { map.removeLayer(sosMarker); } catch(e){} }, 60000);
+      map.flyTo([msg.lat, msg.lng], 16, { duration: 1.5 });
+    }
+    // Show prominent alert banner
+    showSosAlert(msg.name || 'A rider', msg.lat, msg.lng);
+    return;
   }
 
   // 2. Rider left
@@ -5236,6 +5293,7 @@ function publishMyPosition(){
     lat: myPos.lat,
     lng: myPos.lng,
     heading: myPos.heading || 0,
+    speed: myGpsSpeed,
     ts: Date.now()
   });
   mqttClient.publish(topic, payload, { qos: 0, retain: false });
@@ -5252,6 +5310,21 @@ function broadcastMeet(lat, lng){
     ts: lastMeetTs
   });
   mqttClient.publish(topic, payload, { qos: 0, retain: true });
+}
+
+function broadcastSOS() {
+  if (!mqttClient || !mqttClient.connected || !tripCode || !myPos) return;
+  const topic = getMqttTopic('sos/' + riderId);
+  const payload = JSON.stringify({
+    senderId: riderId,
+    name: profile.name,
+    color: profile.color,
+    icon: profile.icon,
+    lat: myPos.lat,
+    lng: myPos.lng,
+    ts: Date.now()
+  });
+  mqttClient.publish(topic, payload, { qos: 1, retain: false });
 }
 
 function broadcastLeave(){
@@ -5315,12 +5388,21 @@ function renderRidersRow(){
     const card = document.createElement('div');
     card.className = 'rider-card';
     card.style.setProperty('--rider-color', d.color);
+    // ETA to destination (if destination is set)
+    let etaStr = '';
+    if (destination && d.lat && d.lng) {
+      const dKm = haversineKm(d.lat, d.lng, destination.lat, destination.lng);
+      const speedKmh = d.speed ? d.speed * 3.6 : 30; // fallback 30 km/h
+      const etaMins = Math.round((dKm / Math.max(speedKmh, 5)) * 60);
+      etaStr = dKm < 0.05 ? '✅ Arrived' : etaMins + ' min away';
+    }
     card.innerHTML = `
       <div class="rider-top">
         <div class="rider-avatar" style="background:${d.color}">${d.icon}</div>
         <div class="rider-name">${d.name}</div>
       </div>
       <div class="rider-status"><span class="status-dot"></span> <span id="rd_${id}">${age > 12000 ? 'Idle' : 'Live'}</span></div>
+      ${etaStr ? `<div class="rider-eta">${etaStr}</div>` : ''}
     `;
     row.appendChild(card);
   });
@@ -5714,6 +5796,19 @@ function startJourney(){
   requestAnimationFrame(updateFabPosition);
   showToast('Navigation started');
   speakVoiceAlert('Navigation started. Follow route.');
+
+  // Wire SOS button
+  const navSosBtn = document.getElementById('navSosBtn');
+  if (navSosBtn) {
+    navSosBtn.onclick = () => {
+      if (!myPos) { showToast('📍 Location not available yet'); return; }
+      // Confirm before sending
+      if (!confirm('🚨 Send SOS alert to all convoy members?')) return;
+      broadcastSOS();
+      showToast('🚨 SOS sent to convoy!');
+      speakVoiceAlert('S O S sent. Help is on the way.');
+    };
+  }
 }
 
 function endJourney(){
@@ -5842,6 +5937,112 @@ async function leaveTrip(){
 document.getElementById('codeDisplay').onclick = () => {
   openQrModal();
 };
+
+// ── Convoy Replay ─────────────────────────────────────────────────────────────
+let _replayInterval = null;
+let _replayPolyline = null;
+let _replayMarker = null;
+
+function startConvoyReplay(path) {
+  if (!map || !path || path.length < 2) {
+    showToast('Not enough path data to replay');
+    return;
+  }
+  // Stop any existing replay
+  stopConvoyReplay();
+
+  showToast('▶️ Replaying route…');
+
+  // Draw full ghost path
+  const latLngs = path.map(p => [p.lat, p.lng]);
+  _replayPolyline = L.polyline(latLngs, {
+    color: '#8B5CF6',
+    weight: 4,
+    opacity: 0.6,
+    dashArray: '8 6'
+  }).addTo(map);
+
+  // Create replay marker
+  const replayIcon = L.divIcon({
+    className: '',
+    html: '<div style="width:20px;height:20px;background:#7C3AED;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 3px rgba(124,58,237,0.4);"></div>',
+    iconSize: [20, 20], iconAnchor: [10, 10]
+  });
+  _replayMarker = L.marker([path[0].lat, path[0].lng], { icon: replayIcon }).addTo(map);
+
+  // Fly to start
+  map.flyTo([path[0].lat, path[0].lng], 15, { duration: 1 });
+
+  // Show replay controls banner
+  showReplayControls(path.length);
+
+  let idx = 0;
+  _replayInterval = setInterval(() => {
+    if (idx >= path.length) {
+      stopConvoyReplay();
+      showToast('✅ Replay complete');
+      return;
+    }
+    _replayMarker.setLatLng([path[idx].lat, path[idx].lng]);
+    map.panTo([path[idx].lat, path[idx].lng], { animate: true, duration: 0.3 });
+    document.getElementById('replayProgressBar') && (
+      document.getElementById('replayProgressBar').style.width = ((idx / path.length) * 100) + '%'
+    );
+    idx++;
+  }, 300);
+}
+
+function stopConvoyReplay() {
+  if (_replayInterval) { clearInterval(_replayInterval); _replayInterval = null; }
+  if (_replayPolyline) { try { map.removeLayer(_replayPolyline); } catch(e){} _replayPolyline = null; }
+  if (_replayMarker) { try { map.removeLayer(_replayMarker); } catch(e){} _replayMarker = null; }
+  const ctrl = document.getElementById('replayControls');
+  if (ctrl) ctrl.style.display = 'none';
+}
+
+function showReplayControls(total) {
+  let ctrl = document.getElementById('replayControls');
+  if (!ctrl) {
+    ctrl = document.createElement('div');
+    ctrl.id = 'replayControls';
+    ctrl.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.92);border:1px solid rgba(124,58,237,0.4);border-radius:14px;padding:10px 16px;z-index:900;display:flex;flex-direction:column;gap:8px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,0.5);';
+    ctrl.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <span style="font-size:12px;font-weight:700;color:#A78BFA;">▶ Replaying Route</span>
+        <button onclick="stopConvoyReplay()" style="background:transparent;border:none;color:#94A3B8;font-size:16px;cursor:pointer;padding:0;">✕</button>
+      </div>
+      <div style="background:rgba(255,255,255,0.1);border-radius:4px;height:4px;overflow:hidden;">
+        <div id="replayProgressBar" style="height:100%;background:#7C3AED;width:0%;transition:width 0.3s;"></div>
+      </div>
+    `;
+    document.body.appendChild(ctrl);
+  }
+  ctrl.style.display = 'flex';
+}
+
+// ── SOS Alert UI ──────────────────────────────────────────────────────────────
+function showSosAlert(name, lat, lng) {
+  let alert = document.getElementById('sosAlertBanner');
+  if (!alert) {
+    alert = document.createElement('div');
+    alert.id = 'sosAlertBanner';
+    alert.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#DC2626;color:#fff;border-radius:12px;padding:12px 18px;z-index:9999;text-align:center;font-weight:700;box-shadow:0 8px 24px rgba(220,38,38,0.5);border:2px solid #FCA5A5;min-width:260px;animation:sosPulse 0.6s infinite alternate;';
+    document.body.appendChild(alert);
+  }
+  alert.innerHTML = `🚨 SOS from <strong>${name}</strong><br><span style="font-size:11px;font-weight:500;opacity:0.9;">Tap to navigate to their location</span>`;
+  alert.style.display = 'block';
+  if (lat && lng) {
+    alert.onclick = () => {
+      map.flyTo([lat, lng], 16);
+      alert.style.display = 'none';
+    };
+  }
+  // Auto-dismiss after 30s
+  setTimeout(() => { if (alert) alert.style.display = 'none'; }, 30000);
+  // Vibrate if supported
+  if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600]);
+}
+
 </script>
 <script>
 // Wire Voice Search, Weather Radar & Layers safely when DOM is ready
@@ -5849,6 +6050,20 @@ window.addEventListener('DOMContentLoaded', () => {
   if (typeof initVoiceSearch === 'function') initVoiceSearch();
   const rFab = document.getElementById('radarFab');
   if (rFab) rFab.onclick = toggleWeatherRadar;
+
+  const themeFab = document.getElementById('themeFab');
+  if (themeFab) {
+    themeFab.onclick = () => {
+      const isDark = document.documentElement.classList.contains('dark');
+      const newLayer = isDark ? 'streets' : 'dark';
+      // Toggle html class for UI theme
+      document.documentElement.classList.toggle('dark', !isDark);
+      document.documentElement.classList.toggle('light', isDark);
+      // Switch map layer
+      setBaseLayer(newLayer);
+      showToast(isDark ? '☀️ Light mode' : '🌙 Dark mode');
+    };
+  }
   const mOpt = document.getElementById('menuRadarOption');
   if (mOpt) mOpt.onclick = () => {
     toggleWeatherRadar();
