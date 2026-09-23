@@ -3168,6 +3168,48 @@ function selectMeetupFromSearch(r){
     color: #94A3B8;
   }
 
+  /* ── Floating DOM tooltip (absolute inside #map) ── */
+  .native-poi-tooltip {
+    position: absolute;
+    z-index: 800;
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.13);
+    border-radius: 9px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.26);
+    padding: 7px 11px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    pointer-events: none;
+    max-width: 220px;
+    white-space: nowrap;
+    transform: translateX(-50%);
+    animation: tooltipFadeIn 0.12s ease;
+  }
+  @keyframes tooltipFadeIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  .native-poi-tooltip::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #fff;
+    border-bottom: none;
+    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.1));
+  }
+  html.dark .native-poi-tooltip {
+    background: #1E293B;
+    border-color: rgba(255,255,255,0.14);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.6);
+  }
+  html.dark .native-poi-tooltip::after {
+    border-top-color: #1E293B;
+  }
+
   /* Nearby places loading indicator */
   .nearby-loading {
     padding: 12px 16px;
@@ -3753,8 +3795,7 @@ function initMap(){
   map = L.map('map', { zoomControl:false }).setView([12.9716, 77.5946], 14);
   setBaseLayer();
   map.on('click', onMapClick);
-  renderMapPois(); // Render interactive POI pins immediately on map init
-  map.on('moveend', renderMapPois);
+  initNativePoiHover();
 }
 
 /* ==========================================================================
@@ -4257,7 +4298,14 @@ function onMapClick(e){
     return;
   }
 
-  // Clicking on blank map closes any open preview card (standard Google Maps behavior)
+  // If mouse is hovering over a named POI, clicking opens its place card (Google Maps style)
+  if(window._lastHoveredPoi){
+    hidePoiTooltip();
+    showPlaceCard(window._lastHoveredPoi);
+    return;
+  }
+
+  // Clicking blank map closes any open preview card
   closePlaceCard();
   map.closePopup();
 }
@@ -6205,62 +6253,126 @@ const POPULAR_LOCAL_POIS = [
   }
 ];
 
-let poiMarkersLayer = null;
 
-// ─── Native Google Maps–style hover on map POIs ───────────────────────────────
-// Uses invisible circle markers (radius 0) positioned on known POI coords.
-// Mouseover → slim tooltip (name + category); Mouseout → hide; Click → full place card.
+// ─── Native Google Maps–style POI Hover ──────────────────────────────────────
+// Listens to map mousemove (debounced 350ms), does Photon reverse geocode,
+// and shows a slim floating tooltip when the cursor is near a named POI.
+// Clicking that spot opens the full place card, just like Google Maps.
 
-function renderMapPois() {
-  if (!map) return;
-  if (!poiMarkersLayer) {
-    poiMarkersLayer = L.layerGroup().addTo(map);
-  } else {
-    poiMarkersLayer.clearLayers();
-  }
+window._lastHoveredPoi = null;
+let _poiTooltipEl = null;
+let _hoverDebounce = null;
+let _hoverAbort = null;
 
-  const zoom = map.getZoom();
-  // Only show interactive POI overlays at street zoom (≥13) to avoid clutter
-  if (zoom < 13) return;
+function getOrCreatePoiTooltip() {
+  if (_poiTooltipEl) return _poiTooltipEl;
+  const el = document.createElement('div');
+  el.id = 'nativePoiTooltip';
+  el.className = 'native-poi-tooltip';
+  el.style.display = 'none';
+  document.getElementById('map').appendChild(el);
+  return (_poiTooltipEl = el);
+}
 
-  POPULAR_LOCAL_POIS.forEach(poi => {
-    // Invisible hit-area circle – no custom icon, no emoji pin
-    const marker = L.circleMarker([poi.lat, poi.lng], {
-      radius: 18,
-      color: 'transparent',
-      fillColor: 'transparent',
-      fillOpacity: 0,
-      opacity: 0,
-      interactive: true
-    }).addTo(poiMarkersLayer);
-
-    // Slim tooltip shown on hover – just like Google Maps native labels
-    const tooltip = L.tooltip({
-      permanent: false,
-      direction: 'top',
-      offset: [0, -6],
-      className: 'poi-native-tooltip',
-      opacity: 1
-    }).setContent(`<span class="pnt-name">${poi.name}</span><span class="pnt-cat">${poi.category.split('·')[0].trim()}</span>`);
-
-    marker.bindTooltip(tooltip);
-
-    marker.on('mouseover', () => marker.openTooltip());
-    marker.on('mouseout', () => marker.closeTooltip());
-
-    // Click → full place card (same as after searching a destination)
-    marker.on('click', (e) => {
-      L.DomEvent.stopPropagation(e);
-      marker.closeTooltip();
-      showPlaceCard({
-        lat: poi.lat,
-        lng: poi.lng,
-        name: poi.name,
-        label: poi.label,
-        type: poi.type
-      });
-    });
+function showPoiTooltip(name, category, containerPoint) {
+  const el = getOrCreatePoiTooltip();
+  el.innerHTML = `<span class="pnt-name">${name}</span><span class="pnt-cat">${category}</span>`;
+  // Position above cursor
+  el.style.left = (containerPoint.x - el.offsetWidth / 2) + 'px';
+  el.style.top  = (containerPoint.y - 52) + 'px';
+  el.style.display = 'flex';
+  // Reposition after render (offsetWidth now correct)
+  requestAnimationFrame(() => {
+    el.style.left = (containerPoint.x - el.offsetWidth / 2) + 'px';
   });
+}
+
+function hidePoiTooltip() {
+  if (_poiTooltipEl) _poiTooltipEl.style.display = 'none';
+  window._lastHoveredPoi = null;
+}
+
+function initNativePoiHover() {
+  if (!map) return;
+
+  map.on('mousemove', (e) => {
+    clearTimeout(_hoverDebounce);
+    if (_hoverAbort) { try { _hoverAbort.abort(); } catch(x){} }
+
+    _hoverDebounce = setTimeout(async () => {
+      // Only at street level zoom
+      if (map.getZoom() < 13) { hidePoiTooltip(); return; }
+
+      const { lat, lng } = e.latlng;
+      const ctrl = new AbortController();
+      _hoverAbort = ctrl;
+
+      try {
+        const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&radius=0.08&limit=1`;
+        const res = await fetch(url, { signal: ctrl.signal });
+        if (!res.ok) { hidePoiTooltip(); return; }
+        const json = await res.json();
+
+        const feat = (json.features || [])[0];
+        if (!feat) { hidePoiTooltip(); return; }
+
+        const props = feat.properties;
+        const name  = props.name;
+        // Only show for named POIs — not roads, postcodes, or unnamed areas
+        const osmKey = (props.osm_key || '').toLowerCase();
+        const osmVal = (props.osm_value || '').toLowerCase();
+        const isNamed = name && name.trim().length > 1;
+        const isPoi   = ['amenity','shop','tourism','leisure','office','craft','sport','brand','building'].includes(osmKey)
+                        || osmVal !== 'residential' && osmVal !== 'road' && osmVal !== 'secondary' && osmVal !== 'primary';
+
+        if (!isNamed || !isPoi) { hidePoiTooltip(); return; }
+
+        // Category label
+        const catMap = {
+          cafe:'Café', coffee:'Café', restaurant:'Restaurant', fast_food:'Fast Food',
+          food_court:'Food Court', bar:'Bar', pub:'Pub', brewery:'Brewery',
+          cinema:'Cinema', theatre:'Theatre', entertainment:'Entertainment',
+          supermarket:'Supermarket', grocery:'Grocery', convenience:'Convenience Store',
+          mall:'Shopping Mall', clothes:'Clothing Store', shoes:'Shoe Store', shop:'Shop',
+          pharmacy:'Pharmacy', chemist:'Pharmacy', bank:'Bank', atm:'ATM',
+          gym:'Gym', fitness:'Gym', sports:'Sports', hotel:'Hotel', hostel:'Hostel',
+          hospital:'Hospital', clinic:'Clinic', school:'School', college:'College',
+          university:'University', office:'Office', fuel:'Fuel Station',
+          parking:'Parking', place_of_worship:'Place of Worship'
+        };
+        let cat = '📍 Place';
+        for (const [k, v] of Object.entries(catMap)) {
+          if (osmVal.includes(k) || osmKey.includes(k)) { cat = v; break; }
+        }
+
+        // Build address label
+        const parts = [props.street, props.city || props.town || props.village].filter(Boolean);
+        const label = parts.length ? `${name}, ${parts.join(', ')}` : name;
+
+        // Store for click handler
+        window._lastHoveredPoi = {
+          lat: feat.geometry.coordinates[1],
+          lng: feat.geometry.coordinates[0],
+          name, label,
+          type: osmVal || osmKey || 'place'
+        };
+
+        // Show tooltip at cursor
+        showPoiTooltip(name, cat, map.latLngToContainerPoint(e.latlng));
+
+      } catch(err) {
+        if (err.name !== 'AbortError') hidePoiTooltip();
+      }
+    }, 350);
+  });
+
+  // Hide tooltip when mouse leaves the map
+  map.on('mouseout', () => {
+    clearTimeout(_hoverDebounce);
+    setTimeout(hidePoiTooltip, 200);
+  });
+
+  // On mobile: no hover, but tapping on map still works via click handler
 }
 
 // ─── Nearby places: live Photon query filtered to ≤350m ─────────────────────
@@ -6271,40 +6383,34 @@ async function renderPopularNearby(d) {
   venuesEl.innerHTML = `<div class="nearby-loading">Finding nearby places…</div>`;
 
   try {
-    // Query Photon with destination name + coordinates for proximity-ranked results
     const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(d.name || '')}&lat=${d.lat}&lon=${d.lng}&limit=30`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     const json = await res.json();
 
-    const RADIUS_KM = 0.35; // 350m strict cutoff
+    const RADIUS_KM = 0.35;
 
-    // Map categories from OSM to friendly labels
     const friendlyCat = (props) => {
-      const t = (props.type || props.osm_value || props.osm_key || '').toLowerCase();
+      const t = (props.osm_value || props.osm_key || '').toLowerCase();
       if (t.includes('cafe') || t.includes('coffee')) return '☕ Café';
-      if (t.includes('restaurant') || t.includes('food') || t.includes('eating')) return '🍽️ Restaurant';
-      if (t.includes('fast_food') || t.includes('burger') || t.includes('pizza')) return '🍔 Fast Food';
-      if (t.includes('cinema') || t.includes('theatre') || t.includes('entertainment')) return '🎬 Entertainment';
+      if (t.includes('restaurant') || t.includes('food') || t.includes('fast_food')) return '🍽️ Restaurant';
+      if (t.includes('cinema') || t.includes('theatre')) return '🎬 Cinema';
       if (t.includes('supermarket') || t.includes('grocery') || t.includes('convenience')) return '🛒 Store';
-      if (t.includes('bakery') || t.includes('pastry')) return '🥐 Bakery';
       if (t.includes('bar') || t.includes('pub') || t.includes('brewery')) return '🍺 Bar';
-      if (t.includes('mall') || t.includes('shop') || t.includes('clothes') || t.includes('fashion')) return '🛍️ Shop';
+      if (t.includes('mall') || t.includes('shop') || t.includes('clothes')) return '🛍️ Shop';
       if (t.includes('pharmacy') || t.includes('chemist')) return '💊 Pharmacy';
       if (t.includes('bank') || t.includes('atm')) return '🏦 Bank/ATM';
-      if (t.includes('gym') || t.includes('sports') || t.includes('fitness')) return '💪 Gym';
-      if (t.includes('hotel') || t.includes('hostel') || t.includes('lodge')) return '🏨 Hotel';
+      if (t.includes('gym') || t.includes('fitness') || t.includes('sports')) return '💪 Gym';
+      if (t.includes('hotel') || t.includes('hostel')) return '🏨 Hotel';
       return '📍 Place';
     };
 
-    // Unsplash photo seed by category
     const photoFor = (props) => {
-      const t = (props.type || props.osm_value || props.osm_key || '').toLowerCase();
+      const t = (props.osm_value || props.osm_key || '').toLowerCase();
       if (t.includes('cafe') || t.includes('coffee')) return 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=400&auto=format&fit=crop&q=70';
-      if (t.includes('restaurant') || t.includes('food') || t.includes('eating') || t.includes('fast_food')) return 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&auto=format&fit=crop&q=70';
+      if (t.includes('restaurant') || t.includes('food') || t.includes('fast_food')) return 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&auto=format&fit=crop&q=70';
       if (t.includes('cinema') || t.includes('theatre')) return 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=400&auto=format&fit=crop&q=70';
-      if (t.includes('supermarket') || t.includes('grocery') || t.includes('mall') || t.includes('shop')) return 'https://images.unsplash.com/photo-1555529771-122b5f766e12?w=400&auto=format&fit=crop&q=70';
-      if (t.includes('bakery')) return 'https://images.unsplash.com/photo-1586985289688-ca3cf47d3e6e?w=400&auto=format&fit=crop&q=70';
-      if (t.includes('bar') || t.includes('pub') || t.includes('brewery')) return 'https://images.unsplash.com/photo-1566417713940-fe7c737a9ef2?w=400&auto=format&fit=crop&q=70';
+      if (t.includes('mall') || t.includes('shop') || t.includes('supermarket')) return 'https://images.unsplash.com/photo-1555529771-122b5f766e12?w=400&auto=format&fit=crop&q=70';
+      if (t.includes('bar') || t.includes('pub')) return 'https://images.unsplash.com/photo-1566417713940-fe7c737a9ef2?w=400&auto=format&fit=crop&q=70';
       return 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&auto=format&fit=crop&q=70';
     };
 
@@ -6313,83 +6419,64 @@ async function renderPopularNearby(d) {
         const props = f.properties;
         const lat = f.geometry.coordinates[1];
         const lng = f.geometry.coordinates[0];
-        const distKm = haversineKm(d.lat, d.lng, lat, lng);
-        const name = props.name;
-        return { props, lat, lng, distKm, name };
+        return { props, lat, lng, name: props.name,
+          distKm: haversineKm(d.lat, d.lng, lat, lng) };
       })
-      .filter(p => p.distKm <= RADIUS_KM && p.name && p.name.toLowerCase() !== (d.name || '').toLowerCase())
-      .sort((a, b) => a.distKm - b.distKm)
+      .filter(p => p.distKm <= RADIUS_KM && p.name && p.name.toLowerCase() !== (d.name||'').toLowerCase())
+      .sort((a,b) => a.distKm - b.distKm)
       .slice(0, 6);
 
     if (!nearby.length) {
-      // Fallback: show closest from local POI list if Photon returns nothing near
+      // Fallback to local list
       const fallback = POPULAR_LOCAL_POIS
-        .filter(p => p.name.toLowerCase() !== (d.name || '').toLowerCase())
+        .filter(p => p.name.toLowerCase() !== (d.name||'').toLowerCase())
         .map(p => ({ ...p, distKm: haversineKm(d.lat, d.lng, p.lat, p.lng) }))
-        .sort((a, b) => a.distKm - b.distKm)
-        .slice(0, 4);
-
+        .sort((a,b) => a.distKm - b.distKm).slice(0, 4);
       if (!fallback.length) { venuesEl.innerHTML = ''; return; }
-
-      venuesEl.innerHTML = `
-        <div class="nearby-venues-card">
-          <div class="pc-section-title">📍 Nearby Places</div>
-          <div class="nearby-grid">
-            ${fallback.map(p => `
-              <div class="nearby-item" onclick="showPlaceCard({lat:${p.lat},lng:${p.lng},name:'${p.name.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}',label:'${p.label.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}',type:'${p.type}'})">
-                <img src="${p.photo}" class="nearby-thumb" alt="${p.name}">
-                <div class="nearby-info">
-                  <div class="nearby-name">${p.name}</div>
-                  <div class="nearby-sub">
-                    <span>★ ${p.rating}</span>
-                    <span>•</span>
-                    <span>${p.distKm < 1 ? Math.round(p.distKm * 1000) + 'm' : p.distKm.toFixed(1) + 'km'}</span>
-                  </div>
-                </div>
-                <button class="nearby-action-go" onclick="event.stopPropagation();destination={lat:${p.lat},lng:${p.lng},name:'${p.name.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}',label:'${p.label.replace(/'/g,"\\'").replace(/\\/g,'\\\\')}',type:'${p.type}'};closePlaceCard();routeTick();startJourney();">Go 🚀</button>
-              </div>
-            `).join('')}
-          </div>
-        </div>`;
+      venuesEl.innerHTML = `<div class="nearby-venues-card"><div class="pc-section-title">📍 Nearby Places</div><div class="nearby-grid">
+        ${fallback.map(p => {
+          const sn = (p.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+          const sl = (p.label||p.name).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+          const dm = p.distKm < 1 ? Math.round(p.distKm*1000)+'m' : p.distKm.toFixed(1)+'km';
+          return `<div class="nearby-item" onclick="showPlaceCard({lat:${p.lat},lng:${p.lng},name:'${sn}',label:'${sl}',type:'${p.type}'})">
+            <img src="${p.photo}" class="nearby-thumb" alt="${p.name}">
+            <div class="nearby-info"><div class="nearby-name">${p.name}</div>
+            <div class="nearby-sub"><span>★ ${p.rating}</span><span>•</span><span>${dm}</span></div></div>
+            <button class="nearby-action-go" onclick="event.stopPropagation();destination={lat:${p.lat},lng:${p.lng},name:'${sn}',label:'${sl}',type:'${p.type}'};closePlaceCard();routeTick();startJourney();">Go 🚀</button>
+          </div>`;
+        }).join('')}
+      </div></div>`;
       return;
     }
 
-    venuesEl.innerHTML = `
-      <div class="nearby-venues-card">
-        <div class="pc-section-title">📍 Nearby Places</div>
-        <div class="nearby-grid">
-          ${nearby.map(p => {
-            const safeName = (p.name || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-            const safeLabel = ((p.props.street ? p.name + ', ' + p.props.street : p.name) || p.name).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-            const cat = friendlyCat(p.props);
-            const photo = photoFor(p.props);
-            const dist = p.distKm < 1 ? Math.round(p.distKm * 1000) + 'm' : p.distKm.toFixed(1) + 'km';
-            const type = (p.props.osm_value || p.props.osm_key || 'place').replace(/\s+/g,'_');
-            return `
-              <div class="nearby-item" onclick="showPlaceCard({lat:${p.lat},lng:${p.lng},name:'${safeName}',label:'${safeLabel}',type:'${type}'})">
-                <img src="${photo}" class="nearby-thumb" alt="${p.name}">
-                <div class="nearby-info">
-                  <div class="nearby-name">${p.name}</div>
-                  <div class="nearby-sub">
-                    <span>${cat}</span>
-                    <span>•</span>
-                    <span>${dist} away</span>
-                  </div>
-                </div>
-                <button class="nearby-action-go" onclick="event.stopPropagation();destination={lat:${p.lat},lng:${p.lng},name:'${safeName}',label:'${safeLabel}',type:'${type}'};closePlaceCard();routeTick();startJourney();">Go 🚀</button>
-              </div>`;
-          }).join('')}
-        </div>
-      </div>`;
+    venuesEl.innerHTML = `<div class="nearby-venues-card"><div class="pc-section-title">📍 Nearby Places</div><div class="nearby-grid">
+      ${nearby.map(p => {
+        const sn = (p.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        const slRaw = p.props.street ? `${p.name}, ${p.props.street}` : p.name;
+        const sl = slRaw.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        const cat = friendlyCat(p.props);
+        const photo = photoFor(p.props);
+        const dm = p.distKm < 1 ? Math.round(p.distKm*1000)+'m' : p.distKm.toFixed(1)+'km';
+        const tp = (p.props.osm_value||p.props.osm_key||'place').replace(/\s+/g,'_');
+        return `<div class="nearby-item" onclick="showPlaceCard({lat:${p.lat},lng:${p.lng},name:'${sn}',label:'${sl}',type:'${tp}'})">
+          <img src="${photo}" class="nearby-thumb" alt="${p.name}">
+          <div class="nearby-info"><div class="nearby-name">${p.name}</div>
+          <div class="nearby-sub"><span>${cat}</span><span>•</span><span>${dm} away</span></div></div>
+          <button class="nearby-action-go" onclick="event.stopPropagation();destination={lat:${p.lat},lng:${p.lng},name:'${sn}',label:'${sl}',type:'${tp}'};closePlaceCard();routeTick();startJourney();">Go 🚀</button>
+        </div>`;
+      }).join('')}
+    </div></div>`;
 
-  } catch (err) {
+  } catch(err) {
     console.warn('Nearby places fetch failed:', err);
     venuesEl.innerHTML = '';
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => { setTimeout(renderMapPois, 800); });
-map && map.on('zoomend', () => renderMapPois());
+// Stub — no longer used, kept to avoid reference errors
+function renderMapPois() {}
+
+window.addEventListener('DOMContentLoaded', () => { /* hover is wired in initMap */ });
 </script>
 </body>
 </html>
