@@ -3099,13 +3099,21 @@ function selectMeetupFromSearch(r){
     box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(28px);
     padding: 4px 16px calc(14px + env(safe-area-inset-bottom)) !important;
-    display: flex !important;
-    flex-direction: column !important;
+    display: flex;
+    flex-direction: column;
     transition: height 0.24s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s ease;
     max-height: 85vh;
-    min-height: 120px;
+    min-height: 60px;
     overflow: hidden;
   }
+  
+  .sheet.sheet-hidden,
+  .sheet[style*="display: none"],
+  .sheet[style*="display:none"] {
+    display: none !important;
+    pointer-events: none !important;
+  }
+
   .sheet.dragging {
     transition: none !important;
   }
@@ -3372,6 +3380,143 @@ function selectMeetupFromSearch(r){
     from { box-shadow: 0 0 0 0 rgba(220,38,38,0.6); }
     to   { box-shadow: 0 0 0 10px rgba(220,38,38,0); }
   }
+
+  /* ── Google Maps Style Navigation HUD ── */
+  .nav-floating-btn {
+    position: fixed;
+    bottom: 84px;
+    z-index: 1050;
+    background: #000000;
+    border: 1.5px solid rgba(255, 255, 255, 0.22);
+    border-radius: 26px;
+    padding: 9px 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #FFFFFF;
+    cursor: pointer;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(14px);
+    transition: transform 0.15s, background 0.15s, opacity 0.2s;
+    user-select: none;
+  }
+  .nav-recentre-btn { left: 16px; }
+  .nav-report-btn { right: 16px; }
+  .nav-floating-btn:hover { background: #1E293B; transform: scale(1.04); }
+  .nav-floating-btn:active { transform: scale(0.96); }
+  .nav-floating-btn .nfb-arrow { font-size: 13px; font-weight: 900; }
+  .nav-floating-btn .nfb-icon { font-size: 15px; }
+
+  /* Gmaps Bottom Nav Bar */
+  .gmaps-nav-bottom {
+    position: fixed !important;
+    left: 0; right: 0; bottom: 0;
+    max-width: 600px;
+    margin: 0 auto;
+    z-index: 1040;
+    background: #000000 !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 24px 24px 0 0;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.7);
+    padding: 12px 18px calc(12px + env(safe-area-inset-bottom)) !important;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .nav-close-circle {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    border: none;
+    color: #FFFFFF;
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+    flex-shrink: 0;
+  }
+  .nav-close-circle:hover { background: rgba(239, 68, 68, 0.35); transform: scale(1.06); }
+  .nav-close-circle:active { transform: scale(0.94); }
+
+  .nav-info-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .nav-eta-green {
+    font-size: 26px;
+    font-weight: 800;
+    color: #34D399; /* Google Maps signature mint green */
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .nav-dist-sub {
+    font-size: 13px;
+    font-weight: 600;
+    color: #94A3B8;
+    margin-top: 2px;
+  }
+
+  .nav-right-cluster {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .speed-cluster.compact {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .speed-cluster.compact .nav-speed {
+    font-size: 24px;
+    font-weight: 800;
+    color: #FFFFFF;
+    line-height: 1;
+  }
+  .speed-cluster.compact .nav-speed span {
+    font-size: 10px;
+    opacity: 0.7;
+  }
+  .nav-sos-pill {
+    background: #DC2626;
+    border: 1px solid #EF4444;
+    color: #FFFFFF;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 6px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+    transition: transform 0.15s;
+  }
+  .nav-sos-pill:hover { transform: scale(1.08); }
+  .nav-sos-pill:active { transform: scale(0.95); }
+
+  /* Rider Proximity Badge */
+  .rider-eta.beside {
+    color: #34D399;
+    background: rgba(52, 211, 153, 0.14);
+    font-weight: 700;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+  }
+  .rider-eta.gap {
+    color: #38BDF8;
+    background: rgba(56, 189, 248, 0.12);
+    font-weight: 600;
+  }
+
 </style>
 </head>
 <body>
@@ -3573,7 +3718,7 @@ function selectMeetupFromSearch(r){
     <span><i style="background:var(--speed-fast)"></i> Fast flow</span>
     <span><i style="background:var(--speed-med)"></i> Moderate</span>
     <span><i style="background:var(--speed-slow)"></i> Congested</span>
-    <span style="margin-left:auto; opacity:0.65;">🔴 Congested  🟠 Slow  🔵 Moving  🩵 Free</span>
+    
   </div>
 
   <!-- Convoy Riders Row -->
@@ -3604,31 +3749,33 @@ function selectMeetupFromSearch(r){
   </div>
 </div>
 
-<div class="nav-bottom" id="navBottom">
-  <div class="nav-stats-row">
-    <div class="speed-cluster">
-      <div class="nav-speed" id="navSpeed">0<span> km/h</span></div>
-      <div class="speed-limit-badge" id="speedLimitBadge" title="Road Speed Limit">
-        <span class="speed-limit-num" id="speedLimitVal">60</span>
+<!-- Google Maps Style Navigation HUD (media_1790185995042.jpg) -->
+<!-- Floating Action Pills above bottom bar -->
+<button class="nav-floating-btn nav-recentre-btn" id="navRecentreBtn" onclick="recentreOnMe()" style="display:none;" title="Center map on live location">
+  <span class="nfb-arrow">▲</span> Re-centre
+</button>
+<button class="nav-floating-btn nav-report-btn" id="navReportBtn" onclick="openHazardPickerModal()" style="display:none;" title="Report Hazard or Propose Meet-up">
+  <span class="nfb-icon">⚠️</span> Report
+</button>
+
+<!-- Compact Google Maps Style Bottom Bar -->
+<div class="nav-bottom gmaps-nav-bottom" id="navBottom" style="display:none;">
+  <button class="nav-close-circle" id="navEndBtn" title="End Journey">✕</button>
+  
+  <div class="nav-info-center">
+    <div class="nav-eta-green" id="navEta">-- min</div>
+    <div class="nav-dist-sub" id="navDist">-- km • --:--</div>
+  </div>
+
+  <div class="nav-right-cluster">
+    <div class="speed-cluster compact">
+      <div class="nav-speed" id="navSpeed">0<span>km/h</span></div>
+      <div class="speed-limit-badge" id="speedLimitBadge" title="Speed limit">
+        <span class="speed-limit-num" id="speedLimitVal">50</span>
       </div>
     </div>
-    <div class="nav-eta-box">
-      <div class="nav-eta" id="navEta">–</div>
-      <div class="nav-dist" id="navDist">–</div>
-    </div>
+    <button class="nav-sos-pill" id="navSosBtn" title="Emergency SOS Alert">SOS</button>
   </div>
-  <div class="nav-actions">
-    <button class="action-btn btn-meet" id="navMeetBtn">📍 Meet Here</button>
-    <button class="action-btn btn-hazard" id="navHazardBtn" style="background:rgba(239,68,68,0.18);border:1px solid rgba(239,68,68,0.4);color:#FCA5A5;">⚠️ Hazard</button>
-    <button class="action-btn btn-subtle" id="navEndBtn" style="flex:1;">End Journey</button>
-    <button class="action-btn" id="navSosBtn" title="Send SOS to convoy" style="background:rgba(220,38,38,0.85);border:1px solid #EF4444;color:#fff;font-weight:800;letter-spacing:0.04em;padding:0 14px;min-width:52px;">SOS</button>
-  </div>
-</div>
-
-
-<!-- Re-centre pill (shown during nav when user pans away) -->
-<div id="recentreBtn" onclick="recentreOnMe()" style="display:none;position:fixed;bottom:200px;left:50%;transform:translateX(-50%);z-index:2000;background:rgba(15,23,42,0.94);border:1.5px solid rgba(99,102,241,0.6);border-radius:24px;padding:11px 22px;align-items:center;gap:9px;font-size:13.5px;font-weight:700;color:#fff;cursor:pointer;box-shadow:0 6px 24px rgba(0,0,0,0.55);backdrop-filter:blur(14px);white-space:nowrap;">
-  <span style="font-size:15px;">▲</span> Re-centre
 </div>
 
 <!-- Hazard / SOS Flare Picker Modal -->
@@ -5405,17 +5552,21 @@ function renderRidersRow(){
     const card = document.createElement('div');
     card.className = 'rider-card';
     card.style.setProperty('--rider-color', d.color);
-    // ETA to destination (if destination is set and rider has valid coords)
+    // Convoy Rider proximity to YOU (clear, unambiguous!)
     let etaStr = '';
-    if (destination && d.lat && d.lng && Math.abs(d.lat) > 0.01 && Math.abs(d.lng) > 0.01) {
-      const dKm = haversineKm(d.lat, d.lng, destination.lat, destination.lng);
-      // Use GPS speed only if > 5 km/h (m/s * 3.6), else use mode-based estimate
-      const rawKmh = (d.speed != null && d.speed * 3.6 > 5) ? d.speed * 3.6 : 25;
-      const etaMins = Math.round((dKm / rawKmh) * 60);
-      if (dKm < 0.05) etaStr = '✅ Arrived';
-      else if (dKm < 1) etaStr = Math.round(dKm * 1000) + 'm to go';
-      else if (etaMins < 180) etaStr = etaMins + ' min away';
-      else etaStr = dKm.toFixed(1) + 'km to go';
+    if (d.lat && d.lng && Math.abs(d.lat) > 0.01) {
+      if (myPos) {
+        const gapKm = haversineKm(myPos.lat, myPos.lng, d.lat, d.lng);
+        if (gapKm < 0.06) {
+          etaStr = '<span class="beside">🟢 Beside you</span>';
+        } else if (gapKm < 1) {
+          etaStr = '<span class="gap">📍 ' + Math.round(gapKm * 1000) + 'm away</span>';
+        } else {
+          etaStr = '<span class="gap">📍 ' + gapKm.toFixed(1) + 'km away</span>';
+        }
+      } else {
+        etaStr = '<span class="beside">🟢 Convoy</span>';
+      }
     }
     card.innerHTML = `
       <div class="rider-top">
@@ -5827,9 +5978,17 @@ function startJourney(){
   document.getElementById('topHeader').style.display = 'none';
   document.getElementById('searchDropdown').style.display = 'none';
   closePlaceCard();
-  document.getElementById('sheet').style.display = 'none';
+  const sheetEl = document.getElementById('sheet');
+  if (sheetEl) {
+    sheetEl.classList.add('sheet-hidden');
+    sheetEl.style.display = 'none';
+  }
   document.getElementById('navBanner').style.display = 'block';
-  document.getElementById('navBottom').style.display = 'block';
+  document.getElementById('navBottom').style.display = 'flex';
+  const nfbRecentre = document.getElementById('navRecentreBtn');
+  if (nfbRecentre) nfbRecentre.style.display = 'flex';
+  const nfbReport = document.getElementById('navReportBtn');
+  if (nfbReport) nfbReport.style.display = 'flex';
 
   // Auto-enable head-up mode for navigation (direction of travel = up)
   if (!headUpMode) {
@@ -5869,8 +6028,15 @@ function endJourney(){
   window._navPanAway = false;
   document.getElementById('navBanner').style.display = 'none';
   document.getElementById('navBottom').style.display = 'none';
-  const rcBtn = document.getElementById('recentreBtn');
-  if (rcBtn) rcBtn.style.display = 'none';
+  const nfbRecentre = document.getElementById('navRecentreBtn');
+  if (nfbRecentre) nfbRecentre.style.display = 'none';
+  const nfbReport = document.getElementById('navReportBtn');
+  if (nfbReport) nfbReport.style.display = 'none';
+  const sheetEl = document.getElementById('sheet');
+  if (sheetEl) {
+    sheetEl.classList.remove('sheet-hidden');
+    sheetEl.style.display = 'flex';
+  }
   // Restore north-up map
   headUpMode = false;
   const compassFab = document.getElementById('compassFab');
@@ -5971,28 +6137,30 @@ function onNavPositionUpdate(){
   }
 
   const target = currentTarget();
-  if(target){
-    // Use road-distance from routing if available, else haversine fallback
-    let distKm;
-    if (lastRoutes[activeRouteIndex] && navSteps.length) {
-      // Remaining steps distance
-      let remM = 0;
-      for (let si = navStepIndex; si < navSteps.length; si++) {
-        remM += navSteps[si].distance || 0;
-      }
-      distKm = remM > 0 ? remM / 1000 : haversineKm(myPos.lat, myPos.lng, target.lat, target.lng);
-    } else {
-      distKm = haversineKm(myPos.lat, myPos.lng, target.lat, target.lng);
-    }
-    document.getElementById('navDist').textContent = (distKm < 1 ? Math.round(distKm * 1000) + ' m' : distKm.toFixed(1) + ' km') + ' left';
-    // ETA: remaining distance / current speed or route duration estimate
-    if(lastRoutes[activeRouteIndex]){
-      const speedKmh = myGpsSpeed != null && myGpsSpeed * 3.6 > 5 ? myGpsSpeed * 3.6 : null;
-      const etaMins = speedKmh
-        ? Math.round((distKm / speedKmh) * 60)
-        : Math.round(lastRoutes[activeRouteIndex].duration / 60 * (distKm / (lastRoutes[activeRouteIndex].distance / 1000)));
-      document.getElementById('navEta').textContent = etaMins + ' min';
-    }
+  if(target && lastRoutes[activeRouteIndex]){
+    const activeRoute = lastRoutes[activeRouteIndex];
+    const totalRoadKm = activeRoute.distance ? (activeRoute.distance / 1000) : haversineKm(myPos.lat, myPos.lng, target.lat, target.lng);
+    const traveledKm = (rideStats.totalDistanceMeters || 0) / 1000;
+    const remainingKm = Math.max(0.1, totalRoadKm - traveledKm);
+
+    // Speed & ETA
+    const currentKmh = (myGpsSpeed != null && myGpsSpeed * 3.6 > 5) ? (myGpsSpeed * 3.6) : null;
+    const baseDurationMins = Math.max(1, Math.round((activeRoute.duration || 1800) / 60));
+    const etaMins = currentKmh
+      ? Math.max(1, Math.round((remainingKm / currentKmh) * 60))
+      : Math.max(1, Math.round(baseDurationMins * (remainingKm / totalRoadKm)));
+
+    // Arrival clock time (e.g. 00:15)
+    const arrivalDate = new Date(Date.now() + etaMins * 60000);
+    const arrivalTimeStr = arrivalDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const distStr = remainingKm < 1 ? Math.round(remainingKm * 1000) + ' m' : remainingKm.toFixed(1) + ' km';
+    
+    const etaEl = document.getElementById('navEta');
+    if (etaEl) etaEl.textContent = etaMins + ' min';
+    
+    const distEl = document.getElementById('navDist');
+    if (distEl) distEl.textContent = `${distStr} • ${arrivalTimeStr}`;
   }
 }
 
@@ -6162,9 +6330,9 @@ let sheetSnapState = 'mid'; // 'peek', 'mid', 'full'
 function getSheetSnapHeights() {
   const vh = window.innerHeight;
   return {
-    peek: Math.max(130, Math.min(160, Math.round(vh * 0.2))),
-    mid: Math.min(350, Math.round(vh * 0.46)),
-    full: Math.min(Math.round(vh * 0.82), 620)
+    peek: 70, // Ultra-compact peek: only handle + mode bar, map is 90% visible!
+    mid: Math.min(320, Math.round(vh * 0.42)),
+    full: Math.min(Math.round(vh * 0.78), 580)
   };
 }
 
