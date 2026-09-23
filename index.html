@@ -6295,85 +6295,121 @@ function hidePoiTooltip() {
 function initNativePoiHover() {
   if (!map) return;
 
+  // ── POI name category lookup ──
+  const POI_KEYS = ['amenity','shop','tourism','leisure','office','craft','sport','brand','healthcare'];
+  const CAT_MAP = {
+    cafe:'☕ Café', coffee:'☕ Café', restaurant:'🍽️ Restaurant', fast_food:'🍔 Fast Food',
+    food_court:'🍽️ Food Court', bar:'🍺 Bar', pub:'🍺 Pub', brewery:'🍺 Brewery',
+    cinema:'🎬 Cinema', theatre:'🎭 Theatre', mall:'🛍️ Mall',
+    supermarket:'🛒 Supermarket', grocery:'🛒 Grocery', convenience:'🛒 Store',
+    clothes:'🛍️ Shop', shoes:'🛍️ Shop', shop:'🛍️ Shop',
+    pharmacy:'💊 Pharmacy', chemist:'💊 Pharmacy', bank:'🏦 Bank', atm:'🏧 ATM',
+    gym:'💪 Gym', fitness:'💪 Gym', sports:'🏃 Sports',
+    hotel:'🏨 Hotel', hostel:'🏨 Hostel', guest_house:'🏨 Guest House',
+    hospital:'🏥 Hospital', clinic:'🏥 Clinic', doctors:'🏥 Clinic',
+    school:'🏫 School', college:'🎓 College', university:'🎓 University',
+    office:'🏢 Office', fuel:'⛽ Fuel', parking:'🅿️ Parking',
+    place_of_worship:'🕌 Place of Worship', park:'🌳 Park'
+  };
+
+  function getCat(osmKey, osmVal) {
+    const kv = [osmVal, osmKey];
+    for (const v of kv) {
+      for (const [k, label] of Object.entries(CAT_MAP)) {
+        if (v && v.includes(k)) return label;
+      }
+    }
+    return '📍 Place';
+  }
+
+  async function doReverseHover(lat, lng, containerPoint) {
+    const ctrl = new AbortController();
+    _hoverAbort = ctrl;
+    try {
+      // Clean Photon reverse URL — no unsupported params
+      const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&limit=1`;
+      const res = await fetch(url, { signal: ctrl.signal });
+      if (!res.ok) { hidePoiTooltip(); return null; }
+      const json = await res.json();
+      const feat = (json.features || [])[0];
+      if (!feat) { hidePoiTooltip(); return null; }
+
+      const props = feat.properties;
+      const name  = props.name;
+      const osmKey = (props.osm_key  || '').toLowerCase();
+      const osmVal = (props.osm_value || '').toLowerCase();
+
+      // Must have a real name
+      if (!name || name.trim().length < 2) { hidePoiTooltip(); return null; }
+
+      // Must be a real POI type (not just a road/area/postcode)
+      if (!POI_KEYS.includes(osmKey)) { hidePoiTooltip(); return null; }
+
+      // Distance guard — Photon reverse can return things 200m away; reject if > 120m
+      const featLat = feat.geometry.coordinates[1];
+      const featLng = feat.geometry.coordinates[0];
+      const distM = haversineKm(lat, lng, featLat, featLng) * 1000;
+      if (distM > 120) { hidePoiTooltip(); return null; }
+
+      const cat = getCat(osmKey, osmVal);
+      const parts = [props.street, props.city || props.town || props.village].filter(Boolean);
+      const label = parts.length ? `${name}, ${parts.join(', ')}` : name;
+
+      const poi = { lat: featLat, lng: featLng, name, label, type: osmVal || osmKey || 'place' };
+      window._lastHoveredPoi = poi;
+
+      if (containerPoint) showPoiTooltip(name, cat, containerPoint);
+      return poi;
+
+    } catch(err) {
+      if (err.name !== 'AbortError') hidePoiTooltip();
+      return null;
+    }
+  }
+
+  // ── Desktop: mousemove debounced 350ms ──
   map.on('mousemove', (e) => {
+    // Capture immediately — e is mutated on next event
+    const lat = e.latlng.lat;
+    const lng = e.latlng.lng;
+    const pt  = map.latLngToContainerPoint(e.latlng); // pixel coords now
+
     clearTimeout(_hoverDebounce);
     if (_hoverAbort) { try { _hoverAbort.abort(); } catch(x){} }
 
-    _hoverDebounce = setTimeout(async () => {
-      // Only at street level zoom
+    _hoverDebounce = setTimeout(() => {
       if (map.getZoom() < 13) { hidePoiTooltip(); return; }
-
-      const { lat, lng } = e.latlng;
-      const ctrl = new AbortController();
-      _hoverAbort = ctrl;
-
-      try {
-        const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&radius=0.08&limit=1`;
-        const res = await fetch(url, { signal: ctrl.signal });
-        if (!res.ok) { hidePoiTooltip(); return; }
-        const json = await res.json();
-
-        const feat = (json.features || [])[0];
-        if (!feat) { hidePoiTooltip(); return; }
-
-        const props = feat.properties;
-        const name  = props.name;
-        // Only show for named POIs — not roads, postcodes, or unnamed areas
-        const osmKey = (props.osm_key || '').toLowerCase();
-        const osmVal = (props.osm_value || '').toLowerCase();
-        const isNamed = name && name.trim().length > 1;
-        const isPoi   = ['amenity','shop','tourism','leisure','office','craft','sport','brand','building'].includes(osmKey)
-                        || osmVal !== 'residential' && osmVal !== 'road' && osmVal !== 'secondary' && osmVal !== 'primary';
-
-        if (!isNamed || !isPoi) { hidePoiTooltip(); return; }
-
-        // Category label
-        const catMap = {
-          cafe:'Café', coffee:'Café', restaurant:'Restaurant', fast_food:'Fast Food',
-          food_court:'Food Court', bar:'Bar', pub:'Pub', brewery:'Brewery',
-          cinema:'Cinema', theatre:'Theatre', entertainment:'Entertainment',
-          supermarket:'Supermarket', grocery:'Grocery', convenience:'Convenience Store',
-          mall:'Shopping Mall', clothes:'Clothing Store', shoes:'Shoe Store', shop:'Shop',
-          pharmacy:'Pharmacy', chemist:'Pharmacy', bank:'Bank', atm:'ATM',
-          gym:'Gym', fitness:'Gym', sports:'Sports', hotel:'Hotel', hostel:'Hostel',
-          hospital:'Hospital', clinic:'Clinic', school:'School', college:'College',
-          university:'University', office:'Office', fuel:'Fuel Station',
-          parking:'Parking', place_of_worship:'Place of Worship'
-        };
-        let cat = '📍 Place';
-        for (const [k, v] of Object.entries(catMap)) {
-          if (osmVal.includes(k) || osmKey.includes(k)) { cat = v; break; }
-        }
-
-        // Build address label
-        const parts = [props.street, props.city || props.town || props.village].filter(Boolean);
-        const label = parts.length ? `${name}, ${parts.join(', ')}` : name;
-
-        // Store for click handler
-        window._lastHoveredPoi = {
-          lat: feat.geometry.coordinates[1],
-          lng: feat.geometry.coordinates[0],
-          name, label,
-          type: osmVal || osmKey || 'place'
-        };
-
-        // Show tooltip at cursor
-        showPoiTooltip(name, cat, map.latLngToContainerPoint(e.latlng));
-
-      } catch(err) {
-        if (err.name !== 'AbortError') hidePoiTooltip();
-      }
+      doReverseHover(lat, lng, pt);
     }, 350);
   });
 
   // Hide tooltip when mouse leaves the map
   map.on('mouseout', () => {
     clearTimeout(_hoverDebounce);
+    if (_hoverAbort) { try { _hoverAbort.abort(); } catch(x){} }
     setTimeout(hidePoiTooltip, 200);
   });
 
-  // On mobile: no hover, but tapping on map still works via click handler
+  // ── Mobile: tap does reverse geocode then opens place card ──
+  // (handled in onMapClick via window._lastHoveredPoi, but on mobile
+  //  mousemove doesn't fire so we do it inline on click)
+  map.on('click', async (e) => {
+    // Only when NOT in a special mode and no POI was pre-hovered (desktop)
+    if (pinMode || searchTargetMode === 'start' || (manualMode && !myPos)) return;
+    if (window._lastHoveredPoi) return; // desktop already handled in onMapClick
+
+    // Mobile tap — do a quick reverse lookup
+    const lat = e.latlng.lat;
+    const lng = e.latlng.lng;
+    if (map.getZoom() < 13) return;
+    const poi = await doReverseHover(lat, lng, null);
+    if (poi) {
+      hidePoiTooltip();
+      showPlaceCard(poi);
+    }
+  });
 }
+
 
 // ─── Nearby places: live Photon query filtered to ≤350m ─────────────────────
 async function renderPopularNearby(d) {
